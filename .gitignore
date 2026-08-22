@@ -4,3 +4,5 @@ data/processed/*.csv
 !data/processed/.gitkeep
 venv/
 __pycache__/
+
+*.zip
