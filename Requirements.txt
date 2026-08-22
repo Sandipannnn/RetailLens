@@ -1,0 +1,12 @@
+pandas
+numpy
+matplotlib
+plotly
+prophet
+xgboost
+scikit-learn
+statsmodels
+shap
+optuna
+streamlit
+kaggle
