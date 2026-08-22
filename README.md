@@ -73,7 +73,7 @@ Best Model Selection → Dashboard
 ## Team & Roles
 
 | Member | Role |
-|---|---|---|
+|---|---|
 | Sandipan Biswas | Project Lead & Data Engineer |
 | Soumili Das | EDA & Visualization |
 | Rudra Pratap Singh | Time-Series Forecasting (Prophet) |
