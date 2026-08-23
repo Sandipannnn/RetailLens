@@ -1,0 +1,41 @@
+[
+  {
+    "Model": "Prophet (Default Baseline)",
+    "Store": 1,
+    "Item": 1,
+    "MAE": 5.251241692239698,
+    "RMSE": 6.806122358248053,
+    "MAPE (%)": 11.642062693229596,
+    "sMAPE (%)": 10.724014437029206,
+    "Coverage (%)": 91.11111111111111,
+    "Avg Interval Width": 26.079507688305736,
+    "Train Time (s)": 0.35,
+    "Notes": "Additive, default priors"
+  },
+  {
+    "Model": "Prophet (Tuned)",
+    "Store": 1,
+    "Item": 1,
+    "MAE": 4.946205827650025,
+    "RMSE": 6.255607805300315,
+    "MAPE (%)": 10.745565680414053,
+    "sMAPE (%)": 10.397994304499697,
+    "Coverage (%)": 94.44444444444444,
+    "Avg Interval Width": 25.751383041828845,
+    "Train Time (s)": 3.41,
+    "Notes": "{'changepoint_prior_scale': 0.01, 'seasonality_prior_scale': 1.0, 'seasonality_mode': 'multiplicative', 'changepoint_range': 0.8}"
+  },
+  {
+    "Model": "SARIMA (1,1,1)x(1,1,1,7)",
+    "Store": 1,
+    "Item": 1,
+    "MAE": 8.355246066270185,
+    "RMSE": 10.500510174388701,
+    "MAPE (%)": 18.802579309564685,
+    "sMAPE (%)": 22.021588236861078,
+    "Coverage (%)": 100.0,
+    "Avg Interval Width": 46.794700804570496,
+    "Train Time (s)": 0.83,
+    "Notes": "Weekly seasonal state-space"
+  }
+]

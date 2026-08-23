@@ -1,0 +1,4 @@
+Model,Store,Item,MAE,RMSE,MAPE (%),sMAPE (%),Coverage (%),Avg Interval Width,Train Time (s),Notes
+Prophet (Default Baseline),1,1,5.251241692239698,6.806122358248053,11.642062693229596,10.724014437029206,91.11111111111111,26.079507688305736,0.35,"Additive, default priors"
+Prophet (Tuned),1,1,4.946205827650025,6.255607805300315,10.745565680414053,10.397994304499697,94.44444444444444,25.751383041828845,3.41,"{'changepoint_prior_scale': 0.01, 'seasonality_prior_scale': 1.0, 'seasonality_mode': 'multiplicative', 'changepoint_range': 0.8}"
+"SARIMA (1,1,1)x(1,1,1,7)",1,1,8.355246066270185,10.500510174388701,18.802579309564685,22.021588236861078,100.0,46.794700804570496,0.83,Weekly seasonal state-space
