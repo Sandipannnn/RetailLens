@@ -7,7 +7,7 @@ Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
 
 import itertools
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 import numpy as np
 import pandas as pd
 from prophet import Prophet
@@ -99,7 +99,10 @@ class ProphetTuner:
                         disable_tqdm=True,
                     )
                     df_p = performance_metrics(df_cv, rolling_window=1)
-                    score = float(df_p[self.metric].mean())
+                    if df_p is not None and self.metric in df_p:
+                        score = float(df_p[self.metric].mean())
+                    else:
+                        raise ValueError("Could not compute performance metrics from cross-validation.")
                 else:
                     # Fast temporal holdout validation (last 90 days)
                     holdout_days = 90
@@ -160,7 +163,10 @@ class ProphetTuner:
         def objective(trial: optuna.Trial) -> float:
             changepoint_prior_scale = trial.suggest_float("changepoint_prior_scale", 0.001, 0.5, log=True)
             seasonality_prior_scale = trial.suggest_float("seasonality_prior_scale", 0.01, 20.0, log=True)
-            seasonality_mode = trial.suggest_categorical("seasonality_mode", ["additive", "multiplicative"])
+            seasonality_mode = cast(
+                Literal["additive", "multiplicative"],
+                trial.suggest_categorical("seasonality_mode", ["additive", "multiplicative"]),
+            )
             changepoint_range = trial.suggest_float("changepoint_range", 0.75, 0.95)
 
             m = Prophet(

@@ -8,7 +8,7 @@ Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
 
 import os
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 import numpy as np
 import pandas as pd
 from prophet import Prophet
@@ -28,16 +28,16 @@ class RetailProphetForecaster:
 
     def __init__(
         self,
-        growth: str = "linear",
+        growth: Literal["linear", "logistic", "flat"] = "linear",
         changepoint_prior_scale: float = 0.05,
         seasonality_prior_scale: float = 10.0,
         holidays_prior_scale: float = 10.0,
-        seasonality_mode: str = "additive",
+        seasonality_mode: Literal["additive", "multiplicative"] = "additive",
         changepoint_range: float = 0.8,
         interval_width: float = 0.95,
-        yearly_seasonality: Union[bool, str, int] = "auto",
-        weekly_seasonality: Union[bool, str, int] = "auto",
-        daily_seasonality: Union[bool, str, int] = False,
+        yearly_seasonality: Union[Literal["auto"], bool, int] = "auto",
+        weekly_seasonality: Union[Literal["auto"], bool, int] = "auto",
+        daily_seasonality: Union[Literal["auto"], bool, int] = False,
         country_holidays: Optional[str] = "US",
     ):
         self.growth = growth
@@ -97,7 +97,7 @@ class RetailProphetForecaster:
         # If aggregated over multiple series
         if "sales" in data.columns:
             if "date" in data.columns:
-                data = data.groupby("date", as_index=False)["sales"].sum()
+                data = data.groupby("date", as_index=False)[["sales"]].sum()
                 data = data.rename(columns={"date": "ds", "sales": "y"})
         elif "ds" not in data.columns or "y" not in data.columns:
             raise ValueError("DataFrame must contain 'date'/'sales' or 'ds'/'y' columns.")
@@ -266,7 +266,10 @@ def batch_forecast_prophet(
         fc = forecaster.predict(horizon_days=max_h, include_history=False)
         all_forecasts.append(fc)
 
-    combined = pd.concat(all_forecasts, ignore_index=True)
+    if not all_forecasts:
+        return pd.DataFrame()
+
+    combined = pd.DataFrame(pd.concat(all_forecasts, ignore_index=True))
     combined_path = os.path.join(output_dir, "prophet_all_horizons.csv")
     combined.to_csv(combined_path, index=False)
     return combined

@@ -39,8 +39,8 @@ def generate_sample_sales_data(
     store_factors = {store: np.random.uniform(0.75, 1.35) for store in range(1, num_stores + 1)}
 
     day_idx = np.arange(n_days)
-    day_of_year = date_range.dayofyear.values
-    day_of_week = date_range.dayofweek.values
+    day_of_year = np.array([d.timetuple().tm_yday for d in date_range])
+    day_of_week = np.array([d.weekday() for d in date_range])
 
     # Yearly pattern (peak in summer months around July/Aug)
     yearly_factor = 1.0 + 0.35 * np.sin(2 * np.pi * (day_of_year - 80) / 365.25)
@@ -68,7 +68,7 @@ def generate_sample_sales_data(
             })
             records.append(df_series)
 
-    df_all = pd.concat(records, ignore_index=True)
+    df_all = pd.DataFrame(pd.concat(records, ignore_index=True))
     df_all = df_all.sort_values(["store", "item", "date"]).reset_index(drop=True)
 
     if output_path:

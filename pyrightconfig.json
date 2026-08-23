@@ -1,0 +1,13 @@
+{
+  "include": [
+    ".",
+    "src",
+    "tests",
+    "notebooks"
+  ],
+  "extraPaths": [
+    ".",
+    "./src",
+    "C:/Users/iitia/AppData/Local/Programs/Python/Python311/Lib/site-packages"
+  ]
+}

@@ -60,7 +60,7 @@ class RetailSARIMAForecaster:
             data = data[data["item"] == item]
 
         if "sales" in data.columns and "date" in data.columns:
-            data = data.groupby("date", as_index=False)["sales"].sum()
+            data = data.groupby("date", as_index=False)[["sales"]].sum()
             data["date"] = pd.to_datetime(data["date"])
             data = data.sort_values("date").set_index("date")
             series = data["sales"].asfreq("D")
@@ -111,7 +111,7 @@ class RetailSARIMAForecaster:
         """
         Generates out-of-sample multi-step forecasts with prediction intervals.
         """
-        if not self.is_fitted or self.fitted_model is None:
+        if not self.is_fitted or self.fitted_model is None or self.last_date is None:
             raise RuntimeError("Model must be fitted before predicting.")
 
         alpha = 1.0 - self.interval_width
