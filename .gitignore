@@ -1,8 +1,12 @@
-﻿data/raw/*.csv
+data/raw/*.csv
 data/processed/*.csv
+data/processed/forecasts/*.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 venv/
 __pycache__/
+*.pyc
+.pytest_cache/
 
 *.zip
+

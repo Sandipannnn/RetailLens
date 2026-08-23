@@ -6,12 +6,18 @@ Run from the project root:
     python src/clean_data.py
 """
 
+import os
 import pandas as pd
+from src.data_generator import generate_sample_sales_data
 
 RAW_PATH = "data/raw/train.csv"
 PROCESSED_PATH = "data/processed/sales_clean.csv"
 
 def clean_data():
+    if not os.path.exists(RAW_PATH):
+        print(f"Raw dataset not found at {RAW_PATH}. Generating sample dataset...")
+        generate_sample_sales_data(output_path=RAW_PATH)
+
     df = pd.read_csv(RAW_PATH)
 
     # Defensive checks (dataset is already clean, but re-verify in case
