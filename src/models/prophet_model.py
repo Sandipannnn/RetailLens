@@ -3,7 +3,7 @@ Prophet Forecasting Engine for RetailLens.
 Implements single-series and batch retail forecasting with multi-step horizons (30/60/90 days),
 uncertainty quantification (confidence intervals), and seasonal component extraction.
 
-Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
+Role: Time-Series Forecasting
 """
 
 import os
