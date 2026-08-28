@@ -2,7 +2,7 @@
 SARIMA (Seasonal AutoRegressive Integrated Moving Average) Forecaster for RetailLens.
 Provides classical statistical time-series benchmarking against Prophet.
 
-Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
+Role: Time-Series Forecasting
 """
 
 import os
