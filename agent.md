@@ -7,13 +7,13 @@ RetailLens is a collaborative machine learning & time-series forecasting project
 
 ## Team Roles & Ownership Matrix
 
-| Track | Owner | Scope & Deliverables |
+| Track | Scope & Deliverables |
 |---|---|---|
-| **Data Engineering** | Sandipan Biswas | Ingestion, data cleaning (`src/clean_data.py`), validation, frozen `sales_clean.csv`. |
-| **EDA & Visuals** | Soumili Das | Seasonal decomposition, store/item clustering, sales distribution analysis. |
-| **Time-Series Forecasting** | Rudra Pratap Singh | Prophet pipeline, SARIMA baseline, 30/60/90d horizons, uncertainty intervals, hyperparameter tuning (`src/models/prophet_model.py`, `src/models/sarima_model.py`, `src/models/hyperparameter_tuner.py`). |
-| **Machine Learning & Eval** | Sohel Mallik | Feature engineering (lags/rolling), XGBoost quantile models, SHAP explainability, hybrid residual modeling. |
-| **Dashboard & UI** | Jeet Jana | Streamlit application, dynamic inventory reorder point alerts, forecast visualization. |
+| **Data Engineering** | Ingestion, data cleaning (`src/clean_data.py`), validation, frozen `sales_clean.csv`. |
+| **EDA & Visuals** | Seasonal decomposition, store/item clustering, sales distribution analysis. |
+| **Time-Series Forecasting** | Prophet pipeline, SARIMA baseline, 30/60/90d horizons, uncertainty intervals, hyperparameter tuning (`src/models/prophet_model.py`, `src/models/sarima_model.py`, `src/models/hyperparameter_tuner.py`). |
+| **Machine Learning & Eval** | Feature engineering (lags/rolling), XGBoost quantile models, SHAP explainability, hybrid residual modeling. |
+| **Dashboard & Deployment** | Streamlit application, dynamic inventory reorder point alerts, forecast visualization. |
 
 ---
 
