@@ -1,6 +1,6 @@
 """
 Time-Series Evaluation Metrics and Helpers.
-Owner: Forecasting Track (RetailLens)
+Role: Machine Learning & Evaluation
 """
 
 from typing import Dict, Optional, Union
