@@ -127,6 +127,12 @@ unzip demand-forecasting-kernels-only.zip -d data/raw
 | 7 | Integration and testing |
 | 8 | Report, PPT, demo, deployment |
 
+## License
+
+This project is licensed under the **MIT License**.
+
+See the [LICENSE](LICENSE) file for the full license text.
+
 ## Evaluation
 
 Models are compared using **MAE**, **RMSE**, and **MAPE** on a hold-out test set, with results
