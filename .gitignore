@@ -4,9 +4,18 @@ data/processed/forecasts/*.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 venv/
+.venv/
+.env
 __pycache__/
+**/__pycache__/
 *.pyc
 .pytest_cache/
+.ipynb_checkpoints/
+
+models/*.pkl
+models/*.joblib
+data/processed/forecasts/*.pkl
+data/processed/forecasts/*.joblib
 
 *.zip
 
