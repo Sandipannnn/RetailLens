@@ -19,3 +19,7 @@ data/processed/forecasts/*.joblib
 
 *.zip
 
+
+.pytest_cache/
+models/
+data/processed/forecasts/

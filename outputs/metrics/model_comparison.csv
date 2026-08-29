@@ -1,0 +1,3 @@
+Model,Store,Item,MAE,RMSE,MAPE (%),sMAPE (%),Coverage (%),Avg Interval Width,Train Time (s),Notes
+Prophet,1,1,3.718130999879978,4.500073282842453,22.817351775749916,19.583889676431024,0.0,0.0,0.8,"Additive, default priors"
+XGBoost,1,1,3.8180568165249293,4.6014364080061885,22.480971793153635,20.127283461430544,0.0,0.0,0.51,"Lag/rolling/calendar features, XGBRegressor"

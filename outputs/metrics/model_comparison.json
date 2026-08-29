@@ -1,0 +1,25 @@
+{
+  "Prophet": {
+    "MAE": 3.718130999879978,
+    "RMSE": 4.500073282842453,
+    "MAPE": 22.817351775749916,
+    "sMAPE": 19.583889676431024
+  },
+  "XGBoost": {
+    "MAE": 3.8180568165249293,
+    "RMSE": 4.6014364080061885,
+    "MAPE": 22.480971793153635,
+    "sMAPE": 20.127283461430544
+  },
+  "best_model": "Prophet",
+  "best_model_reason": "Prophet selected: lowest MAE (3.7181).",
+  "store": 1,
+  "item": 1,
+  "holdout_days": 90,
+  "train_start": "2013-01-29",
+  "train_end": "2017-10-02",
+  "test_start": "2017-10-03",
+  "test_end": "2017-12-31",
+  "train_records": 1708,
+  "test_records": 90
+}
