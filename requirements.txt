@@ -5,6 +5,8 @@ plotly
 prophet
 xgboost
 scikit-learn
+joblib
+pytest
 statsmodels
 shap
 optuna
