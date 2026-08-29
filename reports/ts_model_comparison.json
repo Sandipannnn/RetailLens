@@ -37,5 +37,22 @@
     "Avg Interval Width": 46.794700804570496,
     "Train Time (s)": 0.83,
     "Notes": "Weekly seasonal state-space"
+  },
+  {
+    "Model": "XGBoost",
+    "Store": 1,
+    "Item": 1,
+    "MAE": 4.951250161064996,
+    "RMSE": 6.1062058142336175,
+    "MAPE (%)": 10.53464560746473,
+    "sMAPE (%)": 10.465306229177358,
+    "Coverage (%)": 0.0,
+    "Avg Interval Width": 0.0,
+    "Train Time (s)": 2.24,
+    "Notes": "Lag/rolling/calendar features, XGBRegressor"
+  },
+  {
+    "Model": "[Best: XGBoost]",
+    "Notes": "XGBoost selected: lowest MAE (4.9513)."
   }
 ]
