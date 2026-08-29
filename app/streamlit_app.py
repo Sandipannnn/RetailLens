@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_CANDIDATES = (ROOT / "data" / "processed" / "sales_clean.csv", ROOT / "data" / "raw" / "train.csv")
 FORECAST_DIR = ROOT / "data" / "processed" / "forecasts"
 REPORT_PATHS = (ROOT / "reports" / "ts_model_comparison.csv", ROOT / "reports" / "ts_model_comparison.json")
+# ML evaluation outputs (written by src/models/ml_evaluation.py)
+ML_COMPARISON_PATH = ROOT / "outputs" / "metrics" / "model_comparison.json"
+ML_FEATURE_IMPORTANCE_PATH = ROOT / "outputs" / "metrics" / "xgboost_feature_importance.csv"
+ML_PREDICTIONS_DIR = ROOT / "outputs" / "predictions"
 
 
 def _find_column(columns: Iterable[str], aliases: Iterable[str]) -> Optional[str]:
@@ -71,19 +75,54 @@ def load_comparison() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def load_ml_results() -> Dict[str, Any]:
+    """
+    Loads ML evaluation results (XGBoost metrics, best model, feature importance)
+    from the outputs written by src/models/ml_evaluation.py.
+
+    Returns an empty dict if the ML pipeline has not been run yet.
+    """
+    if not ML_COMPARISON_PATH.exists():
+        return {}
+    try:
+        import json
+        with open(ML_COMPARISON_PATH) as fh:
+            return json.load(fh)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+@st.cache_data(show_spinner=False)
+def load_feature_importance() -> pd.DataFrame:
+    """Loads XGBoost feature importance CSV if available."""
+    if not ML_FEATURE_IMPORTANCE_PATH.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(ML_FEATURE_IMPORTANCE_PATH)
+    except (OSError, ValueError, pd.errors.ParserError):
+        return pd.DataFrame()
+
+
+@st.cache_data(show_spinner=False)
 def load_forecasts() -> pd.DataFrame:
-    if not FORECAST_DIR.exists():
+    dirs_to_search = []
+    if FORECAST_DIR.exists():
+        dirs_to_search.append(FORECAST_DIR)
+    if ML_PREDICTIONS_DIR.exists():
+        dirs_to_search.append(ML_PREDICTIONS_DIR)
+    if not dirs_to_search:
         return pd.DataFrame()
     frames: List[pd.DataFrame] = []
-    for path in sorted(FORECAST_DIR.glob("*.csv")):
-        try:
-            frame = pd.read_csv(path)
-            if frame.empty:
+    for search_dir in dirs_to_search:
+        for path in sorted(search_dir.glob("*.csv")):
+            try:
+                frame = pd.read_csv(path)
+                if frame.empty:
+                    continue
+                frame["_source"] = path.stem
+                frames.append(frame)
+            except (OSError, ValueError, pd.errors.ParserError):
                 continue
-            frame["_source"] = path.stem
-            frames.append(frame)
-        except (OSError, ValueError, pd.errors.ParserError):
-            continue
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
@@ -202,6 +241,8 @@ def main() -> None:
     frame, schema, data_error = load_sales_data()
     comparison = load_comparison()
     forecasts = load_forecasts()
+    ml_results = load_ml_results()
+    feature_importance = load_feature_importance()
     if data_error:
         st.error(data_error)
     if frame.empty or not schema.get("date") or not schema.get("sales"):
@@ -232,7 +273,9 @@ def main() -> None:
     if filtered.empty:
         st.info("No records found for the selected filters.")
         return
-    selected_best = best_model(comparison)
+
+    # Best model: prefer ML evaluation results if available, fall back to comparison CSV
+    selected_best = ml_results.get("best_model") or best_model(comparison)
     selected_metrics = comparison[comparison["Model"].astype(str) == (selected_best if selected_model == "Best Model" else selected_model)] if selected_best and not comparison.empty else pd.DataFrame()
     total_sales = filtered[sales_column].sum()
     average_sales = filtered[sales_column].mean()
@@ -246,7 +289,9 @@ def main() -> None:
     for index, metric in enumerate(("MAE", "RMSE", "MAPE (%)"), start=4):
         with kpis[index]: show_metric(metric, f"{selected_metrics.iloc[0][metric]:,.2f}" if not selected_metrics.empty and metric in selected_metrics else None)
 
-    overview, history_tab, forecast_tab, comparison_tab, alert_tab, explorer_tab = st.tabs(["Overview", "Historical Analysis", "Forecast", "Model Comparison", "Stock Alerts", "Data Explorer"])
+    overview, history_tab, forecast_tab, comparison_tab, ml_tab, alert_tab, explorer_tab = st.tabs(
+        ["Overview", "Historical Analysis", "Forecast", "Model Comparison", "ML Evaluation", "Stock Alerts", "Data Explorer"]
+    )
     with overview:
         st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales"), use_container_width=True)
         st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Weekly sales", "W"), use_container_width=True)
@@ -264,7 +309,55 @@ def main() -> None:
         else:
             st.dataframe(comparison, use_container_width=True, hide_index=True)
             if selected_best:
-                st.success(f"Best model by RMSE, then MAE and MAPE: {selected_best}")
+                st.success(f"Best model by MAE, then RMSE, then MAPE: {selected_best}")
+    with ml_tab:
+        st.subheader("Machine Learning Evaluation — XGBoost vs Prophet")
+        if not ml_results:
+            st.info(
+                "ML evaluation results are not available. "
+                "Run `python src/models/ml_evaluation.py` to generate them."
+            )
+        else:
+            col_p, col_x = st.columns(2)
+            with col_p:
+                st.markdown("**Prophet**")
+                for metric in ("MAE", "RMSE", "MAPE"):
+                    val = ml_results.get("Prophet", {}).get(metric)
+                    show_metric(metric, f"{val:.4f}" if val is not None else None)
+            with col_x:
+                st.markdown("**XGBoost**")
+                for metric in ("MAE", "RMSE", "MAPE"):
+                    val = ml_results.get("XGBoost", {}).get(metric)
+                    show_metric(metric, f"{val:.4f}" if val is not None else None)
+            best_name = ml_results.get("best_model")
+            best_reason = ml_results.get("best_model_reason", "")
+            if best_name:
+                st.success(f"**Best model: {best_name}** — {best_reason}")
+            holdout = ml_results.get("holdout_days")
+            train_start = ml_results.get("train_start", "")
+            train_end = ml_results.get("train_end", "")
+            test_start = ml_results.get("test_start", "")
+            test_end = ml_results.get("test_end", "")
+            if holdout:
+                st.caption(
+                    f"Hold-out: {holdout} days ({test_start} → {test_end})  |  "
+                    f"Training: {train_start} → {train_end}"
+                )
+        if not feature_importance.empty:
+            st.subheader("XGBoost Feature Importance")
+            top_fi = feature_importance.head(15)
+            fig_fi = go.Figure(go.Bar(
+                x=top_fi["importance"][::-1],
+                y=top_fi["feature"][::-1],
+                orientation="h",
+                marker_color="#2a9d8f",
+            ))
+            fig_fi.update_layout(
+                height=420,
+                margin={"l": 20, "r": 20, "t": 10, "b": 20},
+                xaxis_title="Importance (normalised gain)",
+            )
+            st.plotly_chart(fig_fi, use_container_width=True)
     with alert_tab:
         prediction = forecasts[forecast_column].clip(lower=0) if forecast_column else pd.Series(dtype=float)
         inventory_column = schema.get("inventory")
