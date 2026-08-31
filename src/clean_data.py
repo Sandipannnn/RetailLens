@@ -27,15 +27,15 @@ def clean_data():
     negatives = (df["sales"] < 0).sum()
 
     if missing > 0:
-        print(f"Warning: {missing} missing values found — dropping rows.")
+        print(f"Warning: {missing} missing values found -- dropping rows.")
         df = df.dropna()
 
     if dupes > 0:
-        print(f"Warning: {dupes} duplicate rows found — dropping.")
+        print(f"Warning: {dupes} duplicate rows found -- dropping.")
         df = df.drop_duplicates()
 
     if negatives > 0:
-        print(f"Warning: {negatives} negative sales values found — check before proceeding.")
+        print(f"Warning: {negatives} negative sales values found -- check before proceeding.")
 
     # Datetime conversion
     df["date"] = pd.to_datetime(df["date"])
