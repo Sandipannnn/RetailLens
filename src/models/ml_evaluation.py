@@ -105,7 +105,7 @@ def audit_leakage(
     details = (
         f"Train max date: {train_max.date()}  |  Test min date: {test_min.date()}  |  "
         f"Chronological: {'PASS' if chronological else 'FAIL'}\n"
-        "Lag/rolling features use .shift(N) within groups — future target values "
+        "Lag/rolling features use .shift(N) within groups -- future target values "
         "are structurally excluded from all feature columns."
     )
     return {"pass": chronological, "details": details}
@@ -271,7 +271,7 @@ def run_ml_evaluation_pipeline(
     # 1. Load data
     # ------------------------------------------------------------------
     if not os.path.exists(data_path):
-        logger.info("Processed dataset not found — running clean_data()...")
+        logger.info("Processed dataset not found -- running clean_data()...")
         clean_data()
 
     df = pd.read_csv(data_path)
@@ -283,7 +283,7 @@ def run_ml_evaluation_pipeline(
         raise ValueError(f"No data for store={store_id}, item={item_id} in {data_path}.")
 
     logger.info(
-        "Loaded series: store=%d item=%d  rows=%d  %s → %s",
+        "Loaded series: store=%d item=%d  rows=%d  %s to %s",
         store_id, item_id, len(series_df),
         series_df[DATE_COL].min().date(), series_df[DATE_COL].max().date(),
     )
@@ -309,7 +309,7 @@ def run_ml_evaluation_pipeline(
     test_full = featured_df[featured_df[DATE_COL] >= split_date].dropna(subset=feature_cols)
 
     logger.info(
-        "Split — Train: %s → %s (%d rows)  |  Test: %s → %s (%d rows)",
+        "Split -- Train: %s to %s (%d rows)  |  Test: %s to %s (%d rows)",
         train_full[DATE_COL].min().date(), train_full[DATE_COL].max().date(), len(train_full),
         test_full[DATE_COL].min().date(), test_full[DATE_COL].max().date(), len(test_full),
     )
@@ -324,7 +324,7 @@ def run_ml_evaluation_pipeline(
         leakage_result["details"],
     )
     if not leakage_result["pass"]:
-        raise RuntimeError("DATA LEAKAGE DETECTED — aborting pipeline.")
+        raise RuntimeError("DATA LEAKAGE DETECTED -- aborting pipeline.")
 
     # ------------------------------------------------------------------
     # 4. XGBoost evaluation
@@ -613,7 +613,7 @@ def main() -> None:
     )
 
     print("\n============================================================")
-    print("  RETAILLENS — ML EVALUATION RESULTS")
+    print("  RETAILLENS -- ML EVALUATION RESULTS")
     print("============================================================")
     for model in ("Prophet", "XGBoost"):
         m = results[model]
