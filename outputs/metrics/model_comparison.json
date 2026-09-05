@@ -1,18 +1,18 @@
 {
   "Prophet": {
-    "MAE": 3.718130999879978,
-    "RMSE": 4.500073282842453,
-    "MAPE": 22.817351775749916,
-    "sMAPE": 19.583889676431024
+    "MAE": 5.251241692239698,
+    "RMSE": 6.806122358248053,
+    "MAPE": 11.642062693229596,
+    "sMAPE": 10.724014437029206
   },
   "XGBoost": {
-    "MAE": 3.8180568165249293,
-    "RMSE": 4.6014364080061885,
-    "MAPE": 22.480971793153635,
-    "sMAPE": 20.127283461430544
+    "MAE": 4.921100616455078,
+    "RMSE": 6.073919666929378,
+    "MAPE": 10.46819680521272,
+    "sMAPE": 10.422007081583711
   },
-  "best_model": "Prophet",
-  "best_model_reason": "Prophet selected: lowest MAE (3.7181).",
+  "best_model": "XGBoost",
+  "best_model_reason": "XGBoost selected: lowest MAE (4.9211).",
   "store": 1,
   "item": 1,
   "holdout_days": 90,
