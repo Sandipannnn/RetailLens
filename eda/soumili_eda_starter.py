@@ -1,5 +1,5 @@
 """
-EDA STARTER SCRIPT — Soumili Das
+EDA STARTER SCRIPT
 Role: Exploratory Data Analysis (EDA) & Visualization
 Project: RetailLens
 
@@ -19,9 +19,9 @@ import os
 # SETTINGS — change these to match your actual file
 # ----------------------------------------------------------------------
 
-DATA_PATH = "../data/processed/sales_clean.csv"   # relative path from the /eda folder to Sandipan's cleaned file
+DATA_PATH = "../data/processed/sales_clean.csv"   # relative path from the /eda folder to the cleaned file
 
-# COLUMN NAMES — confirmed from Sandipan's clean_data.py (src/clean_data.py)
+# COLUMN NAMES — confirmed from the data cleaning module (src/clean_data.py)
 DATE_COL = "date"      # column with the date
 SALES_COL = "sales"    # column with number of units sold
 STORE_COL = "store"    # column with store id

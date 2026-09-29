@@ -1,6 +1,6 @@
 """
 RetailLens — Prophet Time-Series Forecasting & Analysis Script.
-Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
+Role: Time-Series Forecasting
 
 Demonstrates:
 1. Data loading & series inspection

@@ -3,7 +3,7 @@ Time-Series Model Evaluation & Comparison Pipeline for RetailLens.
 Evaluates Prophet (Baseline vs Tuned) against SARIMA benchmark across multi-step horizons,
 computes metrics (MAE, RMSE, MAPE, Coverage), and exports summary reports.
 
-Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
+Role: Time-Series Forecasting
 """
 
 import argparse

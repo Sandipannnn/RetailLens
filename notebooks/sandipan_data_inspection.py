@@ -1,6 +1,6 @@
 """
 First inspection pass on the Store Item Demand Forecasting dataset.
-Owner: Sandipan (Data Engineer)
+Role: Data Engineering
 """
 
 import pandas as pd

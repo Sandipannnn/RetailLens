@@ -1,6 +1,6 @@
 """
 Cleans the raw Store Item Demand dataset and freezes a processed version.
-Owner: Sandipan (Data Engineer)
+Role: Data Engineering
 
 Run from the project root:
     python src/clean_data.py

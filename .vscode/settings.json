@@ -1,8 +1,7 @@
 {
-  "python.defaultInterpreterPath": "C:/Users/iitia/AppData/Local/Programs/Python/Python311/python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
   "python.analysis.extraPaths": [
     ".",
-    "./src",
-    "C:/Users/iitia/AppData/Local/Programs/Python/Python311/Lib/site-packages"
+    "./src"
   ]
 }

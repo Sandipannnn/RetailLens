@@ -2,7 +2,7 @@
 Automated Hyperparameter Tuning for Prophet Forecaster.
 Supports Grid Search with Rolling-Origin Cross-Validation and Optuna Bayesian Optimization.
 
-Owner: Rudra Pratap Singh (Time-Series Forecasting Track)
+Role: Time-Series Forecasting
 """
 
 import itertools

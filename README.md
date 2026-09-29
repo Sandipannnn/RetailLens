@@ -58,29 +58,36 @@ Best Model Selection → Dashboard
 
 ## Dashboard Features
 
-- Store / product / date-range filters
-- Historical sales alongside forecast charts, with confidence bands
-- Prophet vs. XGBoost toggle so the model comparison is visible, not just a metric in a report
-- Low-stock alerts based on a reorder-point calculation (lead-time demand + safety buffer from
-  forecast uncertainty), not a flat threshold
+- Store / product / date-range filters when those fields are available
+- Historical daily, weekly, and monthly sales charts
+- Historical sales alongside forecast charts, with confidence bands when exported
+- Report-driven model comparison and dynamic best-model selection
+- Low-stock alerts when inventory exists, or clearly labelled demand-based attention thresholds
+- Filtered historical, forecast, and alert tables with CSV downloads
 - Cached data loading (`st.cache_data`) so filtering doesn't re-run the full pipeline
+
+Run the dashboard from the project root with:
+
+```bash
+streamlit run app/streamlit_app.py
+```
 
 ## Tech Stack
 
 `pandas` · `numpy` · `Matplotlib` / `Plotly` · `Prophet` · `XGBoost` · `scikit-learn` ·
 `statsmodels` · `SHAP` · `Optuna` · `Streamlit`
 
-## Team & Roles
+## Functional Roles
 
-| Member | Role |
+| Role | Responsibility |
 |---|---|
-| Sandipan Biswas | Project Lead & Data Engineer |
-| Soumili Das | EDA & Visualization |
-| Rudra Pratap Singh | Time-Series Forecasting (Prophet) |
-| Sohel Mallik | Machine Learning & Evaluation (XGBoost) |
-| Jeet Jana | Dashboard & Deployment (Streamlit) |
+| Data Engineering | Data ingestion, cleaning, and validation |
+| Data Analysis | Exploratory analysis and visualization |
+| Time-Series Forecasting | Prophet and SARIMA forecasting with uncertainty intervals |
+| Machine Learning & Evaluation | Feature engineering, XGBoost, and model evaluation |
+| Dashboard & Deployment | Streamlit application, integration, and operational alerts |
 
-**Review/dependency order:** Data Engineer → EDA → Forecasting → ML/Evaluation → Dashboard —
+**Review/dependency order:** Data Engineering → Data Analysis → Time-Series Forecasting → Machine Learning & Evaluation → Dashboard & Deployment —
 each stage depends on the frozen output of the one before it.
 
 ## Project Structure
@@ -90,7 +97,9 @@ project-root/
 ├── data/
 │   ├── raw/          # untouched downloaded files
 │   └── processed/    # cleaned, frozen dataset (single source of truth)
-├── notebooks/         # one subfolder or filename prefix per person
+├── notebooks/         # exploratory and forecasting scripts
+├── app/
+│   └── streamlit_app.py # integrated dashboard
 ├── src/                # reusable scripts (cleaning, features, models)
 ├── reports/            # final report, PPT drafts
 └── README.md
@@ -108,6 +117,28 @@ pip install -r requirements.txt
 # Download the dataset (requires Kaggle API credentials)
 kaggle competitions download -c demand-forecasting-kernels-only
 unzip demand-forecasting-kernels-only.zip -d data/raw
+```
+
+## Deployment
+
+Use Python 3.10 or newer. After installing dependencies and placing `train.csv` in
+`data/raw/`, prepare the data and run the evaluation pipeline from the project root:
+
+```bash
+python -m src.clean_data
+python -m src.models.evaluate_ts --no-tune --no-sarima
+streamlit run app/streamlit_app.py
+```
+
+The dashboard also runs with only a cleaned CSV and will report missing forecast or evaluation
+outputs without crashing. Optional store, product, inventory, and confidence-bound columns are
+detected at runtime and hidden when unavailable.
+
+## Testing
+
+```bash
+pytest
+python -m py_compile app/streamlit_app.py
 ```
 
 ## Roadmap
@@ -139,14 +170,9 @@ Models are compared using **MAE**, **RMSE**, and **MAPE** on a hold-out test set
 logged to a shared sheet as each model finishes so the Week 5 comparison doesn't require
 re-running everything from scratch.
 
-## Deployment
-
-Final dashboard deployed to Streamlit Community Cloud or Hugging Face Spaces for a live demo
-link, rather than demoed locally only.
-
 ## Contributing
 
-- Branch naming: `feature/<name>-<task>` — e.g. `feature/soumili-eda`, `feature/rudra-prophet`
+- Branch naming: `feature/<role>-<task>` — for example, `feature/dashboard-filters`
 - Open a PR into `main` for review rather than pushing directly
 - Keep `requirements.txt` updated when adding a new dependency
 
