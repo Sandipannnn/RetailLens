@@ -293,11 +293,11 @@ def main() -> None:
         ["Overview", "Historical Analysis", "Forecast", "Model Comparison", "ML Evaluation", "Stock Alerts", "Data Explorer"]
     )
     with overview:
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales"), use_container_width=True)
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Weekly sales", "W"), use_container_width=True)
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales"), use_container_width=True, key="overview_daily_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Weekly sales", "W"), use_container_width=True, key="overview_weekly_sales")
     with history_tab:
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales", None), use_container_width=True)
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Monthly sales", "MS"), use_container_width=True)
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales", None), use_container_width=True, key="history_daily_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Monthly sales", "MS"), use_container_width=True, key="history_monthly_sales")
         period = filtered.groupby(date_column)[sales_column].sum()
         if len(period) > 1:
             st.info(f"Highest sales period: {period.idxmax().date()} ({period.max():,.0f} units). Lowest: {period.idxmin().date()} ({period.min():,.0f} units).")
