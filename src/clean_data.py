@@ -7,7 +7,11 @@ Run from the project root:
 """
 
 import os
+import sys
 import pandas as pd
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.data_generator import generate_sample_sales_data
 
 RAW_PATH = "data/raw/train.csv"
