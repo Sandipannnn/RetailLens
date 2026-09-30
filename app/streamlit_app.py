@@ -28,7 +28,7 @@ LSTM_XGB_REPORT_GLOB = ROOT / "reports"
 
 
 def _find_column(columns: Iterable[str], aliases: Iterable[str]) -> Optional[str]:
-    normalized = {str(column).strip().lower(): str(column) for column in columns}
+    normalized = {column.strip().lower(): column for column in columns}
     for alias in aliases:
         if alias.lower() in normalized:
             return normalized[alias.lower()]
@@ -405,9 +405,10 @@ def main() -> None:
             st.dataframe(pd.DataFrame({"Available Stock": [available], "Forecasted Demand": [demand], "Alert Status": ["LOW STOCK ALERT" if available < demand else "OK"]}), hide_index=True)
         else:
             demand = float(prediction.sum())
-            attention = demand > float(threshold)
+            threshold_val = float(threshold) if threshold is not None else 100.0
+            attention = demand > threshold_val
             st.warning("Attention Required: high expected demand may require inventory review." if attention else "No demand-based attention alert")
-            st.dataframe(pd.DataFrame({"Forecasted Demand": [demand], "Threshold": [threshold], "Alert Status": ["HIGH DEMAND ATTENTION" if attention else "OK"]}), hide_index=True)
+            st.dataframe(pd.DataFrame({"Forecasted Demand": [demand], "Threshold": [threshold_val], "Alert Status": ["HIGH DEMAND ATTENTION" if attention else "OK"]}), hide_index=True)
     with explorer_tab:
         st.download_button("Download historical CSV", filtered.to_csv(index=False), "retail_lens_historical.csv", "text/csv")
         st.dataframe(filtered, use_container_width=True, hide_index=True)
