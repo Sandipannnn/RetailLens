@@ -48,7 +48,7 @@
     "sMAPE (%)": 10.422007081583711,
     "Coverage (%)": 0.0,
     "Avg Interval Width": 0.0,
-    "Train Time (s)": 2.78,
+    "Train Time (s)": 10.02,
     "Notes": "Lag/rolling/calendar features, XGBRegressor"
   },
   {
