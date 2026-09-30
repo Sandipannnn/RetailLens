@@ -21,5 +21,7 @@ data/processed/forecasts/*.joblib
 
 
 .pytest_cache/
-models/
+/models/
 data/processed/forecasts/
+data/processed/models/
+

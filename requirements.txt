@@ -2,7 +2,6 @@ pandas
 numpy
 matplotlib
 plotly
-prophet
 xgboost
 scikit-learn
 joblib
