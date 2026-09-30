@@ -12,3 +12,5 @@ shap
 optuna
 streamlit
 kaggle
+tensorflow-cpu
+scipy

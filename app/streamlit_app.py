@@ -6,6 +6,7 @@ for local demos and hosted deployment.
 """
 
 from pathlib import Path
+import json
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -22,6 +23,8 @@ REPORT_PATHS = (ROOT / "reports" / "ts_model_comparison.csv", ROOT / "reports" /
 ML_COMPARISON_PATH = ROOT / "outputs" / "metrics" / "model_comparison.json"
 ML_FEATURE_IMPORTANCE_PATH = ROOT / "outputs" / "metrics" / "xgboost_feature_importance.csv"
 ML_PREDICTIONS_DIR = ROOT / "outputs" / "predictions"
+# New LSTM+XGBoost reports (written by src/train.py)
+LSTM_XGB_REPORT_GLOB = ROOT / "reports"
 
 
 def _find_column(columns: Iterable[str], aliases: Iterable[str]) -> Optional[str]:
@@ -77,15 +80,24 @@ def load_comparison() -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_ml_results() -> Dict[str, Any]:
     """
-    Loads ML evaluation results (XGBoost metrics, best model, feature importance)
-    from the outputs written by src/models/ml_evaluation.py.
+    Loads ML evaluation results from either:
+    1. New format: reports/model_comparison_s{store}_i{item}.json  (src/train.py)
+    2. Legacy format: outputs/metrics/model_comparison.json        (src/models/ml_evaluation.py)
 
-    Returns an empty dict if the ML pipeline has not been run yet.
+    Returns an empty dict if neither pipeline has been run yet.
     """
+    # Try new LSTM+XGBoost reports first
+    new_reports = sorted((ROOT / "reports").glob("model_comparison_s*.json"))
+    if new_reports:
+        try:
+            with open(new_reports[-1]) as fh:  # use the most recently created
+                return json.load(fh)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+    # Fall back to legacy ml_evaluation.py output
     if not ML_COMPARISON_PATH.exists():
         return {}
     try:
-        import json
         with open(ML_COMPARISON_PATH) as fh:
             return json.load(fh)
     except (OSError, ValueError, json.JSONDecodeError):
@@ -311,34 +323,71 @@ def main() -> None:
             if selected_best:
                 st.success(f"Best model by MAE, then RMSE, then MAPE: {selected_best}")
     with ml_tab:
-        st.subheader("Machine Learning Evaluation — XGBoost vs Prophet")
+        st.subheader("AI & Machine Learning Model Evaluation")
+        # Architecture badges
+        badge_col1, badge_col2, _ = st.columns([2, 2, 4])
+        with badge_col1:
+            st.markdown(
+                "<span style='background:linear-gradient(135deg,#6c5ce7,#a29bfe);"
+                "color:white;border-radius:12px;padding:0.25rem 0.8rem;"
+                "font-size:0.8rem;font-weight:600;'>🧠 LSTM — AI / Deep Learning</span>",
+                unsafe_allow_html=True,
+            )
+        with badge_col2:
+            st.markdown(
+                "<span style='background:linear-gradient(135deg,#00b894,#00cec9);"
+                "color:white;border-radius:12px;padding:0.25rem 0.8rem;"
+                "font-size:0.8rem;font-weight:600;'>⚡ XGBoost — Machine Learning</span>",
+                unsafe_allow_html=True,
+            )
+
         if not ml_results:
             st.info(
-                "ML evaluation results are not available. "
-                "Run `python src/models/ml_evaluation.py` to generate them."
+                "Model evaluation results are not available. Run the training pipeline first:\n"
+                "```\npython src/train.py --store 1 --item 1\n```"
             )
         else:
-            col_p, col_x = st.columns(2)
-            with col_p:
-                st.markdown("**Prophet**")
-                for metric in ("MAE", "RMSE", "MAPE"):
-                    val = ml_results.get("Prophet", {}).get(metric)
-                    show_metric(metric, f"{val:.4f}" if val is not None else None)
-            with col_x:
-                st.markdown("**XGBoost**")
-                for metric in ("MAE", "RMSE", "MAPE"):
-                    val = ml_results.get("XGBoost", {}).get(metric)
-                    show_metric(metric, f"{val:.4f}" if val is not None else None)
+            # Detect format: new (lstm_metrics/xgb_metrics) or legacy (Prophet/XGBoost keys)
+            has_new_format = "lstm_metrics" in ml_results or "xgb_metrics" in ml_results
+
+            if has_new_format:
+                lstm_m = ml_results.get("lstm_metrics", {})
+                xgb_m = ml_results.get("xgb_metrics", {})
+                col_l, col_x = st.columns(2)
+                with col_l:
+                    st.markdown("**LSTM (AI / Deep Learning)**")
+                    for metric in ("MAE", "RMSE", "MAPE"):
+                        val = lstm_m.get(metric)
+                        show_metric(metric, f"{val:.4f}" if val is not None else None)
+                with col_x:
+                    st.markdown("**XGBoost (Traditional ML)**")
+                    for metric in ("MAE", "RMSE", "MAPE"):
+                        val = xgb_m.get(metric)
+                        show_metric(metric, f"{val:.4f}" if val is not None else None)
+            else:
+                # Legacy: Prophet vs XGBoost
+                col_p, col_x = st.columns(2)
+                with col_p:
+                    st.markdown("**Prophet**")
+                    for metric in ("MAE", "RMSE", "MAPE"):
+                        val = ml_results.get("Prophet", {}).get(metric)
+                        show_metric(metric, f"{val:.4f}" if val is not None else None)
+                with col_x:
+                    st.markdown("**XGBoost**")
+                    for metric in ("MAE", "RMSE", "MAPE"):
+                        val = ml_results.get("XGBoost", {}).get(metric)
+                        show_metric(metric, f"{val:.4f}" if val is not None else None)
+
             best_name = ml_results.get("best_model")
             best_reason = ml_results.get("best_model_reason", "")
             if best_name:
-                st.success(f"**Best model: {best_name}** — {best_reason}")
+                st.success(f"**Best model: {best_name}**" + (f" — {best_reason}" if best_reason else ""))
             holdout = ml_results.get("holdout_days")
             train_start = ml_results.get("train_start", "")
             train_end = ml_results.get("train_end", "")
             test_start = ml_results.get("test_start", "")
             test_end = ml_results.get("test_end", "")
-            if holdout:
+            if holdout and test_start:
                 st.caption(
                     f"Hold-out: {holdout} days ({test_start} → {test_end})  |  "
                     f"Training: {train_start} → {train_end}"
