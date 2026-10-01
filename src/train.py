@@ -96,16 +96,17 @@ def train_and_evaluate(
     if not force_retrain and lstm_model_exists:
         logger.info("  Loading saved LSTM model...")
         lstm.load(store_id, item_id)
+        lstm_metrics, _ = lstm.evaluate_holdout(
+            df, holdout_days=holdout_days, store=store_id, item=item_id, retrain=False
+        )
     else:
         logger.info("  Training LSTM model...")
         t0 = time.time()
-        lstm.fit(df, store=store_id, item=item_id)
+        lstm_metrics, _ = lstm.evaluate_holdout(
+            df, holdout_days=holdout_days, store=store_id, item=item_id, retrain=True
+        )
         logger.info(f"  LSTM training completed in {time.time() - t0:.1f}s")
         lstm.save(store_id, item_id)
-
-    lstm_metrics, _ = lstm.evaluate_holdout(
-        df, holdout_days=holdout_days, store=store_id, item=item_id
-    )
     logger.info(
         f"  LSTM Holdout  — MAE={lstm_metrics['MAE']:.2f}, "
         f"RMSE={lstm_metrics['RMSE']:.2f}, MAPE={lstm_metrics['MAPE']:.2f}%"

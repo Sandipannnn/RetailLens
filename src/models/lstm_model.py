@@ -28,14 +28,16 @@ logger = logging.getLogger(__name__)
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-# Default LSTM hyperparameters — kept lightweight for CPU inference
-WINDOW_SIZE: int = 28          # 4-week look-back
-LSTM_UNITS_1: int = 64
-LSTM_UNITS_2: int = 32
-DROPOUT_RATE: float = 0.2
-EPOCHS: int = 50
-BATCH_SIZE: int = 64
-PATIENCE: int = 7              # Early stopping patience
+# Default LSTM hyperparameters — tuned for accuracy and fast CPU inference
+WINDOW_SIZE: int = 35          # 5-week look-back (captures weekly seasonal cycles)
+LSTM_UNITS_1: int = 32         # Lightweight single-layer LSTM: fast CPU training, prevents overfitting
+LSTM_UNITS_2: int = 0          # 0 = single layer; >0 adds stacked LSTM layer
+DROPOUT_RATE: float = 0.1      # Regularization
+EPOCHS: int = 25               # Efficient training with early stopping
+BATCH_SIZE: int = 64           # Optimized CPU batch throughput
+PATIENCE: int = 4              # Early stopping patience
+LEARNING_RATE: float = 0.005   # Optimized Adam learning rate for faster convergence
+LOSS: str = "mse"              # Training loss function
 
 MODEL_DIR: str = "data/processed/models"
 
@@ -43,7 +45,7 @@ MODEL_DIR: str = "data/processed/models"
 def _load_keras():
     """Lazy-load Keras to avoid slow startup when LSTM is not needed."""
     try:
-        from tensorflow import keras
+        from tensorflow import keras  # type: ignore[import-untyped,import-not-found]
         return keras
     except ImportError as e:
         raise ImportError(
@@ -74,6 +76,8 @@ class LSTMForecaster:
         epochs: int = EPOCHS,
         batch_size: int = BATCH_SIZE,
         patience: int = PATIENCE,
+        learning_rate: float = LEARNING_RATE,
+        loss: str = LOSS,
         model_dir: str = MODEL_DIR,
     ):
         self.window = window
@@ -83,6 +87,8 @@ class LSTMForecaster:
         self.epochs = epochs
         self.batch_size = batch_size
         self.patience = patience
+        self.learning_rate = learning_rate
+        self.loss = loss
         self.model_dir = model_dir
 
         self._model = None          # Keras model
@@ -99,16 +105,23 @@ class LSTMForecaster:
 
     def _build_model(self, keras):
         """Constructs and compiles the Keras LSTM model."""
-        model = keras.Sequential([
-            keras.layers.Input(shape=(self.window, 1)),
-            keras.layers.LSTM(self.lstm_units_1, return_sequences=True),
-            keras.layers.Dropout(self.dropout),
-            keras.layers.LSTM(self.lstm_units_2, return_sequences=False),
-            keras.layers.Dropout(self.dropout),
-            keras.layers.Dense(16, activation="relu"),
-            keras.layers.Dense(1),
-        ])
-        model.compile(optimizer="adam", loss="mse")
+        layers = [keras.layers.Input(shape=(self.window, 1))]
+        if self.lstm_units_2 and self.lstm_units_2 > 0:
+            layers.append(keras.layers.LSTM(self.lstm_units_1, return_sequences=True))
+            if self.dropout > 0:
+                layers.append(keras.layers.Dropout(self.dropout))
+            layers.append(keras.layers.LSTM(self.lstm_units_2, return_sequences=False))
+        else:
+            layers.append(keras.layers.LSTM(self.lstm_units_1, return_sequences=False))
+
+        if self.dropout > 0:
+            layers.append(keras.layers.Dropout(self.dropout))
+        layers.append(keras.layers.Dense(16, activation="relu"))
+        layers.append(keras.layers.Dense(1))
+
+        model = keras.Sequential(layers)
+        optimizer = keras.optimizers.Adam(learning_rate=self.learning_rate)
+        model.compile(optimizer=optimizer, loss=self.loss)
         return model
 
     def _make_scaler(self):
@@ -207,7 +220,7 @@ class LSTMForecaster:
             restore_best_weights=True, verbose=0,
         )
         cb_lr = keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss", factor=0.5, patience=3, verbose=0
+            monitor="val_loss", factor=0.5, patience=max(2, self.patience // 2), verbose=0
         )
 
         self._model.fit(
@@ -236,7 +249,7 @@ class LSTMForecaster:
     ) -> pd.DataFrame:
         """
         Generates out-of-sample forecasts by recursively feeding predictions
-        back into the LSTM window.
+        back into the LSTM window. Fast inference via predict_on_batch.
 
         Returns DataFrame with columns:
             ds, yhat, store (optional), item (optional)
@@ -245,15 +258,17 @@ class LSTMForecaster:
             raise RuntimeError("Model must be fitted before predicting.")
         if self._last_window is None:
             raise RuntimeError("No window seed available; call fit() first.")
+        if self.last_train_date is None:
+            raise RuntimeError("last_train_date is not set; call fit() first.")
 
-        window = self._last_window.copy()
+        curr_window = self._last_window.copy()
         predictions_scaled = []
 
         for _ in range(horizon_days):
-            x_input = window[-self.window:].reshape(1, self.window, 1).astype(np.float32)
-            pred_scaled = self._model.predict(x_input, verbose=0)[0, 0]
+            x_input = curr_window[-self.window:].reshape(1, self.window, 1).astype(np.float32)
+            pred_scaled = float(self._model.predict_on_batch(x_input)[0, 0])
             predictions_scaled.append(pred_scaled)
-            window = np.append(window, pred_scaled)
+            curr_window = np.append(curr_window, pred_scaled)
 
         # Inverse-transform to original scale
         preds_array = np.array(predictions_scaled, dtype=np.float32).reshape(-1, 1)
@@ -296,12 +311,18 @@ class LSTMForecaster:
         holdout_days: int = 90,
         store: Optional[int] = None,
         item: Optional[int] = None,
+        mode: str = "one_step",
+        retrain: bool = True,
     ) -> Tuple[Dict[str, float], pd.DataFrame]:
         """
         Time-based holdout evaluation:
         - Trains on data up to (max_date - holdout_days)
-        - Generates recursive predictions for holdout period
-        - Computes MAE, RMSE, MAPE on test window
+        - Supports two evaluation modes:
+            * 'one_step' (default): Rolling 1-step ahead prediction using actual
+              historical values up to each test day (matching XGBoost's evaluation protocol).
+            * 'recursive': Multi-step autoregressive recursive forecast without ground truth.
+        - Computes MAE, RMSE, MAPE, sMAPE on test window.
+        - Keeps self._model fitted so downstream prediction does not require retraining.
 
         Returns: (metrics_dict, holdout_comparison_df)
         """
@@ -312,43 +333,84 @@ class LSTMForecaster:
                 f"Need > {holdout_days + self.window} rows."
             )
 
+        self.store_id = store
+        self.item_id = item
+        self.last_train_date = series.index.max()
+
         train_series_vals = series.iloc[: -holdout_days].values.reshape(-1, 1).astype(np.float32)
         test_series = series.iloc[-holdout_days:]
 
-        # Fit scaler on train only
-        scaler = self._make_scaler()
-        train_scaled = scaler.fit_transform(train_series_vals).ravel()
+        # Check if we should retrain or use existing model
+        should_train = retrain or (self._model is None) or (self._scaler is None) or (not self.is_fitted)
 
-        # Build sequences
-        X_train, y_train = build_lstm_sequences(train_scaled, self.window)
-        if len(X_train) == 0:
-            raise ValueError("Not enough data for holdout evaluation.")
+        if should_train:
+            scaler = self._make_scaler()
+            train_scaled = scaler.fit_transform(train_series_vals).ravel()
 
-        keras = _load_keras()
-        eval_model = self._build_model(keras)
-        cb = keras.callbacks.EarlyStopping(
-            monitor="loss", patience=5, restore_best_weights=True, verbose=0
-        )
-        eval_model.fit(
-            X_train, y_train,
-            epochs=self.epochs,
-            batch_size=self.batch_size,
-            callbacks=[cb],
-            verbose=0,
-        )
+            X_train, y_train = build_lstm_sequences(train_scaled, self.window)
+            if len(X_train) == 0:
+                raise ValueError("Not enough data for holdout evaluation.")
 
-        # Recursive prediction
-        window = train_scaled[-self.window:].copy()
-        preds_scaled = []
-        for _ in range(holdout_days):
-            x_in = window[-self.window:].reshape(1, self.window, 1).astype(np.float32)
-            p = eval_model.predict(x_in, verbose=0)[0, 0]
-            preds_scaled.append(p)
-            window = np.append(window, p)
+            keras = _load_keras()
+            eval_model = self._build_model(keras)
 
-        preds = scaler.inverse_transform(
-            np.array(preds_scaled).reshape(-1, 1)
-        ).ravel()
+            # Chronological 85/15 validation split within train partition for early stopping
+            val_split = max(self.window + 1, int(len(X_train) * 0.85))
+            X_tr, y_tr = X_train[:val_split], y_train[:val_split]
+            X_va, y_va = X_train[val_split:], y_train[val_split:]
+
+            cb_early_stop = keras.callbacks.EarlyStopping(
+                monitor="val_loss", patience=self.patience, restore_best_weights=True, verbose=0
+            )
+            cb_lr = keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss", factor=0.5, patience=max(2, self.patience // 2), verbose=0
+            )
+
+            eval_model.fit(
+                X_tr, y_tr,
+                validation_data=(X_va, y_va),
+                epochs=self.epochs,
+                batch_size=self.batch_size,
+                callbacks=[cb_early_stop, cb_lr],
+                verbose=0,
+            )
+
+            self._model = eval_model
+            self._scaler = scaler
+            self.is_fitted = True
+        else:
+            if self._scaler is None or self._model is None:
+                raise RuntimeError("Model and scaler must be fitted before evaluate_holdout when retrain=False.")
+            scaler = self._scaler
+            eval_model = self._model
+            train_scaled = scaler.transform(train_series_vals).ravel()
+
+        all_scaled = scaler.transform(series.values.reshape(-1, 1).astype(np.float32)).ravel()
+        self._last_window = all_scaled[-self.window:].ravel()
+
+        if mode == "one_step":
+            # Vectorized 1-step prediction across all holdout days
+            X_test_list = [
+                all_scaled[i - self.window : i]
+                for i in range(len(train_series_vals), len(series))
+            ]
+            X_test = np.array(X_test_list, dtype=np.float32).reshape(-1, self.window, 1)
+            preds_scaled = eval_model.predict_on_batch(X_test).ravel()
+            preds = scaler.inverse_transform(preds_scaled.reshape(-1, 1)).ravel()
+        else:
+            # Recursive prediction
+            window = train_scaled[-self.window:].copy()
+            preds_scaled = []
+            for _ in range(holdout_days):
+                x_in = window[-self.window:].reshape(1, self.window, 1).astype(np.float32)
+                p = float(eval_model.predict_on_batch(x_in)[0, 0])
+                preds_scaled.append(p)
+                window = np.append(window, p)
+
+            preds = scaler.inverse_transform(
+                np.array(preds_scaled, dtype=np.float32).reshape(-1, 1)
+            ).ravel()
+
         preds = np.maximum(0, preds)
 
         comparison = pd.DataFrame({
