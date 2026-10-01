@@ -3,56 +3,13 @@
     "Model": "Prophet (Default Baseline)",
     "Store": 1,
     "Item": 1,
-    "MAE": 3.718130999879978,
-    "RMSE": 4.500073282842453,
-    "MAPE (%)": 22.817351775749916,
-    "sMAPE (%)": 19.583889676431024,
-    "Coverage (%)": 97.77777777777777,
-    "Avg Interval Width": 17.321847311437832,
-    "Train Time (s)": 0.83,
+    "MAE": 5.251241692239698,
+    "RMSE": 6.806122358248053,
+    "MAPE (%)": 11.642062693229596,
+    "sMAPE (%)": 10.724014437029206,
+    "Coverage (%)": 90.0,
+    "Avg Interval Width": 25.937619677181107,
+    "Train Time (s)": 1.58,
     "Notes": "Additive, default priors"
-  },
-  {
-    "Model": "Prophet (Tuned)",
-    "Store": 1,
-    "Item": 1,
-    "MAE": 3.7087153623878093,
-    "RMSE": 4.476454882129651,
-    "MAPE (%)": 21.871419482014133,
-    "sMAPE (%)": 19.64403068503376,
-    "Coverage (%)": 94.44444444444444,
-    "Avg Interval Width": 17.138707780643255,
-    "Train Time (s)": 5.41,
-    "Notes": "{'changepoint_prior_scale': 0.5, 'seasonality_prior_scale': 0.1, 'seasonality_mode': 'multiplicative', 'changepoint_range': 0.8}"
-  },
-  {
-    "Model": "SARIMA (1,1,1)x(1,1,1,7)",
-    "Store": 1,
-    "Item": 1,
-    "MAE": 4.494381507365904,
-    "RMSE": 5.386144249772914,
-    "MAPE (%)": 29.229662276719726,
-    "sMAPE (%)": 23.227640488973105,
-    "Coverage (%)": 98.88888888888889,
-    "Avg Interval Width": 24.357231040735833,
-    "Train Time (s)": 3.06,
-    "Notes": "Weekly seasonal state-space"
-  },
-  {
-    "Model": "XGBoost",
-    "Store": 1,
-    "Item": 1,
-    "MAE": 4.921100616455078,
-    "RMSE": 6.073919666929378,
-    "MAPE (%)": 10.46819680521272,
-    "sMAPE (%)": 10.422007081583711,
-    "Coverage (%)": 0.0,
-    "Avg Interval Width": 0.0,
-    "Train Time (s)": 10.02,
-    "Notes": "Lag/rolling/calendar features, XGBRegressor"
-  },
-  {
-    "Model": "[Best: XGBoost]",
-    "Notes": "XGBoost selected: lowest MAE (4.9211)."
   }
 ]
