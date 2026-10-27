@@ -127,31 +127,58 @@ def load_feature_importance() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_forecasts() -> pd.DataFrame:
-    dirs_to_search = []
-    if FORECAST_DIR.exists():
-        dirs_to_search.append(FORECAST_DIR)
-    if ML_PREDICTIONS_DIR.exists():
-        dirs_to_search.append(ML_PREDICTIONS_DIR)
-    if not dirs_to_search:
+    """Load future forecast exports; hold-out prediction files are not forecasts."""
+    if not FORECAST_DIR.exists():
         return pd.DataFrame()
     frames: List[pd.DataFrame] = []
-    for search_dir in dirs_to_search:
-        for path in sorted(search_dir.glob("*.csv")):
-            try:
-                frame = pd.read_csv(path)
-                if frame.empty:
-                    continue
-                frame["_source"] = path.stem
-                frames.append(frame)
-            except (OSError, ValueError, pd.errors.ParserError):
+    for path in sorted(FORECAST_DIR.glob("*.csv")):
+        try:
+            frame = pd.read_csv(path)
+            if frame.empty or _find_column(frame.columns, ("actual", "actual_sales", "actuals")):
                 continue
+            frame["_source"] = path.stem
+            frames.append(frame)
+        except (OSError, ValueError, pd.errors.ParserError):
+            continue
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+@st.cache_data(show_spinner=False)
+def load_holdout_predictions() -> pd.DataFrame:
+    """Load historical out-of-sample predictions with matching actual values."""
+    if not ML_PREDICTIONS_DIR.exists():
+        return pd.DataFrame()
+    frames: List[pd.DataFrame] = []
+    for path in sorted(ML_PREDICTIONS_DIR.glob("*.csv")):
+        try:
+            frame = pd.read_csv(path)
+            date_column = _find_column(frame.columns, ("date", "ds", "timestamp"))
+            actual_column = _find_column(frame.columns, ("actual", "actual_sales", "actuals"))
+            prediction_column = _find_column(frame.columns, ("predicted_sales", "prediction", "yhat"))
+            if frame.empty or not date_column or not actual_column or not prediction_column:
+                continue
+            frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
+            frame[actual_column] = pd.to_numeric(frame[actual_column], errors="coerce")
+            frame[prediction_column] = pd.to_numeric(frame[prediction_column], errors="coerce")
+            frame = frame.dropna(subset=[date_column, actual_column, prediction_column])
+            if frame.empty:
+                continue
+            frame = frame.rename(columns={
+                date_column: "date",
+                actual_column: "actual_sales",
+                prediction_column: "predicted_sales",
+            })
+            frame["_source"] = path.stem
+            frames.append(frame)
+        except (OSError, ValueError, pd.errors.ParserError):
+            continue
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def best_model(comparison: pd.DataFrame) -> Optional[str]:
     if comparison.empty or "Model" not in comparison.columns:
         return None
-    metric_columns = [column for column in ("RMSE", "MAE", "MAPE (%)") if column in comparison.columns]
+    metric_columns = [column for column in ("MAE", "RMSE", "MAPE (%)") if column in comparison.columns]
     if not metric_columns:
         return None
     ranked = comparison.copy()
@@ -190,21 +217,104 @@ def filter_forecasts(frame: pd.DataFrame, stores: List[Any], products: List[Any]
     return filtered
 
 
-def select_forecast_model(frame: pd.DataFrame, selected_model: str, comparison: pd.DataFrame) -> pd.DataFrame:
+def select_forecast_model(
+    frame: pd.DataFrame,
+    selected_model: str,
+    comparison: pd.DataFrame,
+    selected_best: Optional[str] = None,
+) -> pd.DataFrame:
     if frame.empty:
         return frame
     selected = frame.copy()
     model_column = _find_column(selected.columns, ("model", "model_name"))
-    model_name = best_model(comparison) if selected_model == "Best Model" else selected_model
+    model_name = (selected_best or best_model(comparison)) if selected_model == "Best Model" else selected_model
     if not model_name:
         return selected
     if model_column:
         return selected[selected[model_column].astype(str).str.contains(model_name, case=False, na=False)]
     if "_source" in selected.columns:
         tokens = re.findall(r"[a-z0-9]+", model_name.lower())
+        if not tokens:
+            return selected.iloc[0:0]
         token = "_".join(tokens[:2]) if len(tokens) > 1 else tokens[0]
         return selected[selected["_source"].str.lower().str.replace("-", "_", regex=False).str.contains(token, na=False)]
     return selected
+
+
+def comparison_for_display(comparison: pd.DataFrame) -> pd.DataFrame:
+    """Hide interval metrics for models whose saved hold-out output has no bounds."""
+    displayed = comparison.copy()
+    interval_columns = [
+        column for column in ("Coverage (%)", "Avg Interval Width")
+        if column in displayed.columns
+    ]
+    if not interval_columns or "Model" not in displayed.columns:
+        return displayed
+
+    prediction_files = {
+        "xgboost": ML_PREDICTIONS_DIR / "xgboost_test_predictions.csv",
+        "prophet": ML_PREDICTIONS_DIR / "prophet_test_predictions.csv",
+    }
+    for index, model in displayed["Model"].items():
+        model_key = str(model).lower()
+        source = next((path for key, path in prediction_files.items() if key in model_key), None)
+        if source is None or not source.exists():
+            continue
+        try:
+            columns = pd.read_csv(source, nrows=0).columns
+        except (OSError, ValueError, pd.errors.ParserError):
+            continue
+        lower = _find_column(columns, ("yhat_lower", "lower_bound", "lower"))
+        upper = _find_column(columns, ("yhat_upper", "upper_bound", "upper"))
+        if not lower or not upper:
+            displayed.loc[index, interval_columns] = pd.NA
+    return displayed
+
+
+def holdout_view(
+    predictions: pd.DataFrame,
+    stores: List[Any],
+    products: List[Any],
+    dates: Tuple[Any, Any],
+    horizon: int,
+) -> None:
+    """Render backtest predictions separately from future forecasts."""
+    if predictions.empty:
+        return
+    selected = filter_forecasts(predictions, stores, products)
+    date_column = "date"
+    selected = selected[selected[date_column].dt.date.between(dates[0], dates[1])]
+    if selected.empty:
+        return
+    selected = (
+        selected.sort_values(date_column)
+        .groupby("_source", group_keys=False)
+        .tail(horizon)
+    )
+    if selected.empty:
+        return
+
+    st.subheader("Historical hold-out validation")
+    st.caption("These are predictions for dates with known actual sales; they are not future forecasts.")
+    figure = go.Figure()
+    first = selected.drop_duplicates(subset=[date_column]).sort_values(date_column)
+    figure.add_trace(go.Scatter(
+        x=first[date_column], y=first["actual_sales"], name="Actual sales",
+        line={"color": "#264653", "width": 2},
+    ))
+    for source, group in selected.groupby("_source", sort=True):
+        model_label = "Prophet" if "prophet" in source.lower() else "XGBoost" if "xgboost" in source.lower() else source
+        figure.add_trace(go.Scatter(
+            x=group[date_column], y=group["predicted_sales"], name=f"{model_label} hold-out prediction",
+            line={"width": 2},
+        ))
+    figure.update_layout(height=380, hovermode="x unified", margin={"l": 20, "r": 20, "t": 20, "b": 20})
+    st.plotly_chart(figure, width="stretch", key="holdout_predictions")
+    st.dataframe(selected, width="stretch", hide_index=True)
+    st.download_button(
+        "Download hold-out predictions CSV", selected.to_csv(index=False),
+        "retail_lens_holdout_predictions.csv", "text/csv",
+    )
 
 
 def sales_figure(frame: pd.DataFrame, date_column: str, sales_column: str, title: str, frequency: Optional[str] = None) -> go.Figure:
@@ -220,7 +330,14 @@ def show_metric(label: str, value: Any) -> None:
     st.metric(label, value if value not in (None, "") else "Not Available")
 
 
-def forecast_view(forecasts: pd.DataFrame, filtered: pd.DataFrame, schema: Dict[str, Optional[str]], selected_model: str, horizon: int) -> None:
+def forecast_view(
+    forecasts: pd.DataFrame,
+    filtered: pd.DataFrame,
+    schema: Dict[str, Optional[str]],
+    selected_model: str,
+    horizon: int,
+    selected_best: Optional[str] = None,
+) -> None:
     if forecasts.empty:
         st.info("Forecast files are not available. Run the existing evaluation or forecasting pipeline first.")
         return
@@ -231,7 +348,7 @@ def forecast_view(forecasts: pd.DataFrame, filtered: pd.DataFrame, schema: Dict[
         return
     forecast_data = forecasts.copy()
     forecast_data[date_column] = pd.to_datetime(forecast_data[date_column], errors="coerce")
-    forecast_data = select_forecast_model(forecast_data, selected_model, load_comparison())
+    forecast_data = select_forecast_model(forecast_data, selected_model, load_comparison(), selected_best)
     forecast_data = forecast_data.sort_values(date_column).head(horizon)
     if forecast_data.empty:
         st.info("No forecast records found for the selected model and horizon.")
@@ -249,8 +366,8 @@ def forecast_view(forecasts: pd.DataFrame, filtered: pd.DataFrame, schema: Dict[
         figure.add_trace(go.Scatter(x=forecast_data[date_column], y=forecast_data[upper].clip(lower=0), name="Upper Bound", line={"width": 0}, showlegend=False))
         figure.add_trace(go.Scatter(x=forecast_data[date_column], y=forecast_data[lower].clip(lower=0), name="Confidence Interval", fill="tonexty", line={"width": 0}, fillcolor="rgba(231,111,81,0.18)"))
     figure.update_layout(height=430, hovermode="x unified", margin={"l": 20, "r": 20, "t": 20, "b": 20})
-    st.plotly_chart(figure, use_container_width=True)
-    st.dataframe(forecast_data, use_container_width=True, hide_index=True)
+    st.plotly_chart(figure, width="stretch")
+    st.dataframe(forecast_data, width="stretch", hide_index=True)
     st.download_button("Download forecast CSV", forecast_data.to_csv(index=False), "retail_lens_forecast.csv", "text/csv")
 
 
@@ -262,8 +379,10 @@ def main() -> None:
 
     frame, schema, data_error = load_sales_data()
     comparison = load_comparison()
-    forecasts = load_forecasts()
     ml_results = load_ml_results()
+    selected_best = ml_results.get("best_model") or best_model(comparison)
+    forecasts = load_forecasts()
+    holdout_predictions = load_holdout_predictions()
     feature_importance = load_feature_importance()
     if data_error:
         st.error(data_error)
@@ -291,13 +410,11 @@ def main() -> None:
 
     filtered = filter_data(frame, schema, selected_stores, selected_products, (selected_dates[0], selected_dates[1]))
     forecasts = filter_forecasts(forecasts, selected_stores, selected_products)
-    forecasts = select_forecast_model(forecasts, selected_model, comparison)
+    forecasts = select_forecast_model(forecasts, selected_model, comparison, selected_best)
     if filtered.empty:
         st.info("No records found for the selected filters.")
         return
 
-    # Best model: prefer ML evaluation results if available, fall back to comparison CSV
-    selected_best = ml_results.get("best_model") or best_model(comparison)
     selected_metrics = comparison[comparison["Model"].astype(str) == (selected_best if selected_model == "Best Model" else selected_model)] if selected_best and not comparison.empty else pd.DataFrame()
     total_sales = filtered[sales_column].sum()
     average_sales = filtered[sales_column].mean()
@@ -315,23 +432,26 @@ def main() -> None:
         ["Overview", "Historical Analysis", "Forecast", "Model Comparison", "ML Evaluation", "Stock Alerts", "Data Explorer"]
     )
     with overview:
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales"), use_container_width=True, key="overview_daily_sales")
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Weekly sales", "W"), use_container_width=True, key="overview_weekly_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales"), width="stretch", key="overview_daily_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Weekly sales", "W"), width="stretch", key="overview_weekly_sales")
     with history_tab:
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales", None), use_container_width=True, key="history_daily_sales")
-        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Monthly sales", "MS"), use_container_width=True, key="history_monthly_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Daily sales", None), width="stretch", key="history_daily_sales")
+        st.plotly_chart(sales_figure(filtered, date_column, sales_column, "Monthly sales", "MS"), width="stretch", key="history_monthly_sales")
         period = filtered.groupby(date_column)[sales_column].sum()
         if len(period) > 1:
             st.info(f"Highest sales period: {period.idxmax().date()} ({period.max():,.0f} units). Lowest: {period.idxmin().date()} ({period.min():,.0f} units).")
     with forecast_tab:
-        forecast_view(forecasts, filtered, schema, selected_model, horizon)
+        forecast_view(forecasts, filtered, schema, selected_model, horizon, selected_best)
+        holdout_view(holdout_predictions, selected_stores, selected_products, (selected_dates[0], selected_dates[1]), horizon)
     with comparison_tab:
         if comparison.empty:
             st.info("Model comparison report is not available.")
         else:
-            st.dataframe(comparison, use_container_width=True, hide_index=True)
-            if selected_best:
-                st.success(f"Best model by MAE, then RMSE, then MAPE: {selected_best}")
+            st.dataframe(comparison_for_display(comparison), width="stretch", hide_index=True)
+            report_best = best_model(comparison)
+            if report_best:
+                st.success(f"Best model in this report by MAE, then RMSE, then MAPE: {report_best}")
+                st.caption("The ML Evaluation tab uses its separately saved hold-out metrics and prediction files.")
     with ml_tab:
         st.subheader("AI & Machine Learning Model Evaluation")
         # Architecture badges
@@ -391,7 +511,7 @@ def main() -> None:
                 margin={"l": 20, "r": 20, "t": 10, "b": 20},
                 xaxis_title="Importance (normalised gain)",
             )
-            st.plotly_chart(fig_fi, use_container_width=True)
+            st.plotly_chart(fig_fi, width="stretch")
     with alert_tab:
         prediction = forecasts[forecast_column].clip(lower=0) if forecast_column else pd.Series(dtype=float)
         inventory_column = schema.get("inventory")
@@ -411,7 +531,7 @@ def main() -> None:
             st.dataframe(pd.DataFrame({"Forecasted Demand": [demand], "Threshold": [threshold_val], "Alert Status": ["HIGH DEMAND ATTENTION" if attention else "OK"]}), hide_index=True)
     with explorer_tab:
         st.download_button("Download historical CSV", filtered.to_csv(index=False), "retail_lens_historical.csv", "text/csv")
-        st.dataframe(filtered, use_container_width=True, hide_index=True)
+        st.dataframe(filtered, width="stretch", hide_index=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RetailLens - Project Progress Report 2</title>
+  <style>
+    :root { --ink: #183b3a; --muted: #526766; --accent: #c45d36; --line: #cbd8d3; --wash: #eff4ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e7ece7; color: #233534; font: 10.5pt/1.5 "Segoe UI", Arial, sans-serif; }
+    main { width: min(8.27in, calc(100% - 32px)); margin: 24px auto; padding: .65in .75in; background: #fffefa; box-shadow: 0 10px 36px #183b3a1c; }
+    header { padding: 8px 0 20px; border-bottom: 3px solid var(--ink); }
+    .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 9pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    h1 { margin: 0; color: var(--ink); font-size: 29pt; line-height: 1.1; }
+    .subtitle { margin: 7px 0 0; color: var(--muted); font-size: 15pt; }
+    .meta { display: flex; flex-wrap: wrap; gap: 7px 24px; margin-top: 17px; color: var(--muted); font-size: 9pt; }
+    h2 { margin: 20px 0 6px; color: var(--ink); font-size: 15pt; page-break-after: avoid; }
+    p { margin: 5px 0 9px; }
+    ul, ol { margin: 5px 0 10px; padding-left: 21px; }
+    li { margin: 4px 0; }
+    .summary { color: var(--muted); font-size: 11pt; }
+    .callout { margin: 10px 0; padding: 10px 13px; border-left: 4px solid var(--accent); background: var(--wash); }
+    table { width: 100%; margin: 8px 0 10px; border-collapse: collapse; font-size: 9pt; }
+    th { padding: 7px; background: var(--ink); color: white; text-align: left; }
+    td { padding: 6px 7px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    tbody tr:nth-child(even) { background: #f3f6f2; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .note, footer { color: var(--muted); font-size: 8.5pt; }
+    footer { margin-top: 19px; padding-top: 8px; border-top: 1px solid var(--line); }
+    @page { size: A4; margin: .55in .62in; }
+    @media print {
+      body { background: white; }
+      main { width: auto; margin: 0; padding: 0; box-shadow: none; }
+      table, .callout { break-inside: avoid; }
+    }
+    @media screen and (max-width: 600px) {
+      main { width: 100%; margin: 0; padding: 24px 19px; }
+      h1 { font-size: 25pt; }
+      table { font-size: 8pt; }
+      th, td { padding: 5px 4px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Second Project Progress Report</p>
+      <h1>RetailLens</h1>
+      <p class="subtitle">Retail Sales Forecasting &amp; Analytics</p>
+      <div class="meta">
+        <span><strong>Date:</strong> 29 September 2026</span>
+        <span><strong>Stage:</strong> Evaluation and dashboard integration</span>
+        <span><strong>Dataset:</strong> Store Item Demand Forecasting Challenge</span>
+      </div>
+    </header>
+
+    <h2>1. Project Overview</h2>
+    <p class="summary">RetailLens analyzes historical retail sales, compares forecasting models, and presents demand insights through a Streamlit dashboard to support inventory planning.</p>
+
+    <h2>2. Progress So Far</h2>
+    <ul>
+      <li>Created a data-cleaning pipeline and processed sales dataset.</li>
+      <li>Implemented calendar, lag, and rolling features for sales forecasting.</li>
+      <li>Built Prophet, SARIMA, and XGBoost model workflows and saved evaluation outputs.</li>
+      <li>Developed a Streamlit dashboard with sales filters, charts, forecast/model views, downloads, and demand-based attention alerts.</li>
+      <li>Added forecasting and machine-learning test suites; a passing test run has not yet been verified for this report.</li>
+    </ul>
+
+    <h2>3. Current Results</h2>
+    <p>The saved detailed comparison covers Store 1 / Item 1 on a 90-day holdout. It is a single-series result, not a final ranking across the complete dataset.</p>
+    <table>
+      <thead><tr><th>Model</th><th class="num">MAE</th><th class="num">RMSE</th><th class="num">MAPE</th><th class="num">Coverage</th></tr></thead>
+      <tbody>
+        <tr><td>Prophet (Default)</td><td class="num">3.718</td><td class="num">4.500</td><td class="num">22.82%</td><td class="num">97.78%</td></tr>
+        <tr><td>Prophet (Tuned)</td><td class="num">3.709</td><td class="num">4.476</td><td class="num">21.87%</td><td class="num">94.44%</td></tr>
+        <tr><td>SARIMA</td><td class="num">4.494</td><td class="num">5.386</td><td class="num">29.23%</td><td class="num">98.89%</td></tr>
+        <tr><td>XGBoost</td><td class="num">4.921</td><td class="num">6.074</td><td class="num">10.47%</td><td class="num">0.00%</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The detailed report marks XGBoost as best, although tuned Prophet has lower MAE and RMSE in the same results. A separate ML report also gives different Prophet scores. Therefore, the final best model is not yet confirmed. XGBoost interval coverage is not available.</p>
+
+    <h2>4. Next Work</h2>
+    <ol>
+      <li>Re-run all models on the same holdout dates and metric definitions; correct the inconsistent comparison and best-model selection.</li>
+      <li>Add prediction intervals for XGBoost and evaluate their coverage and width.</li>
+      <li>Test 30-, 60-, and 90-day forecasts across more store-item series, then summarize overall performance.</li>
+      <li>Run the test suites and verify the dashboard workflow, forecast selection, and alert labels.</li>
+      <li>Connect actual inventory data before presenting demand-based alerts as low-stock warnings.</li>
+    </ol>
+
+    <h2>5. Conclusion</h2>
+    <p>The core forecasting modules and dashboard prototype are in place. The next phase will focus on consistent model evaluation, uncertainty estimates, broader testing, and verified dashboard behavior before selecting a final model.</p>
+
+    <footer>RetailLens · Second Project Progress Report · Prepared from the project files and saved evaluation outputs.</footer>
+  </main>
+</body>
+</html>
