@@ -8,7 +8,7 @@ Architecture:
 - Dense output for single-step-ahead prediction
 - Per-series MinMaxScaler (fitted ONLY on training data)
 - Supports multi-step forecast generation via recursive prediction
-- Saves/loads model + scaler to disk to avoid retraining on dashboard load
+- Saves/loads model + scaler to disk so serving requests do not retrain
 
 Owner: RetailLens AI Track
 """

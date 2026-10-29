@@ -155,12 +155,9 @@ def _service_level_to_z(service_level: float) -> float:
     levels = {0.90: 1.282, 0.95: 1.645, 0.99: 2.326, 0.999: 3.090}
     if service_level in levels:
         return levels[service_level]
-    # Approximate using normal distribution
-    from scipy.stats import norm  # type: ignore[import]
-    try:
-        return float(norm.ppf(service_level))
-    except Exception:
-        return 1.645  # Default to 95%
+    from scipy.stats import norm
+
+    return float(norm.ppf(service_level))
 
 
 def batch_inventory_recommendations(

@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+from src.inventory import compute_inventory_recommendation
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_CANDIDATES = (
@@ -20,6 +25,8 @@ ML_METRICS_CSV = ROOT / "outputs" / "metrics" / "model_comparison.csv"
 TS_METRICS_JSON = ROOT / "reports" / "ts_model_comparison.json"
 TS_METRICS_CSV = ROOT / "reports" / "ts_model_comparison.csv"
 FEATURE_IMPORTANCE_CSV = ROOT / "outputs" / "metrics" / "xgboost_feature_importance.csv"
+REPORT_DIR = ROOT / "reports"
+PREDICTION_DIR = ROOT / "outputs" / "predictions"
 
 app = FastAPI(
     title="RetailLens Sales Analytics API",
@@ -28,6 +35,21 @@ app = FastAPI(
         "and saved model evaluation artifacts. This API never trains models or writes to project data."
     ),
     version="1.0.0",
+)
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "RETAILLENS_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_methods=["GET"],
+    allow_headers=["Accept"],
 )
 
 
@@ -70,9 +92,19 @@ def _sales_frame() -> tuple[pd.DataFrame, Path]:
 def _filtered_sales(store: int | None, item: int | None, start_date: str | None, end_date: str | None) -> pd.DataFrame:
     frame, _ = _sales_frame()
     if start_date:
-        frame = frame[frame["date"] >= pd.Timestamp(start_date)]
+        start = pd.Timestamp(start_date)
+    else:
+        start = None
     if end_date:
-        frame = frame[frame["date"] < pd.Timestamp(end_date) + pd.Timedelta(days=1)]
+        end = pd.Timestamp(end_date)
+    else:
+        end = None
+    if start is not None and end is not None and start > end:
+        raise ValueError("start_date must be on or before end_date.")
+    if start is not None:
+        frame = frame[frame["date"] >= start]
+    if end is not None:
+        frame = frame[frame["date"] < end + pd.Timedelta(days=1)]
     if store is not None:
         frame = frame[frame["store"] == store]
     if item is not None:
@@ -99,10 +131,85 @@ def _read_csv_records(path: Path) -> list[dict[str, Any]] | None:
         raise HTTPException(status_code=500, detail=f"Unable to read {path.relative_to(ROOT)}: {exc}") from exc
 
 
+def _training_reports(store: int | None = None, item: int | None = None) -> list[dict[str, Any]]:
+    reports = []
+    for path in sorted(REPORT_DIR.glob("model_comparison_s*_i*.json")):
+        match = re.fullmatch(r"model_comparison_s(\d+)_i(\d+)", path.stem)
+        if not match:
+            continue
+        report_store, report_item = map(int, match.groups())
+        if store is not None and report_store != store:
+            continue
+        if item is not None and report_item != item:
+            continue
+        report = _read_json(path)
+        if report is None:
+            continue
+        reports.append({
+            "store": report.get("store", report_store),
+            "item": report.get("item", report_item),
+            "report": report,
+        })
+    return reports
+
+
+def _forecast_frame(store: int | None = None, item: int | None = None) -> pd.DataFrame:
+    files = sorted(FORECAST_DIR.glob("*.csv")) if FORECAST_DIR.is_dir() else []
+    parts: list[pd.DataFrame] = []
+    for path in files:
+        try:
+            frame = pd.read_csv(path)
+        except (OSError, UnicodeError, pd.errors.ParserError) as exc:
+            raise HTTPException(status_code=500, detail=f"Unable to read forecast {path.name}: {exc}") from exc
+        if frame.empty or {"actual", "actual_sales", "actuals"}.intersection(str(col).lower() for col in frame.columns):
+            continue
+
+        match = re.search(r"_s(\d+)_i(\d+)$", path.stem)
+        inferred_store, inferred_item = (map(int, match.groups()) if match else (None, None))
+        store_col = next((c for c in frame.columns if str(c).lower() in {"store", "store_id", "location", "branch"}), None)
+        item_col = next((c for c in frame.columns if str(c).lower() in {"item", "product", "product_id", "sku"}), None)
+        if store is not None:
+            if store_col:
+                frame = frame[pd.to_numeric(frame[store_col], errors="coerce") == store]
+            elif inferred_store != store:
+                continue
+        if item is not None:
+            if item_col:
+                frame = frame[pd.to_numeric(frame[item_col], errors="coerce") == item]
+            elif inferred_item != item:
+                continue
+        if frame.empty:
+            continue
+        if store_col is None and inferred_store is not None:
+            frame["store"] = inferred_store
+        if item_col is None and inferred_item is not None:
+            frame["item"] = inferred_item
+        frame["_source"] = path.stem
+        parts.append(frame)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
 @app.get("/health", tags=["service"])
 def health() -> dict[str, str]:
     """Report that the API process is responding."""
     return {"status": "ok"}
+
+
+@app.get("/sales/options", tags=["sales"])
+def sales_options(
+    store: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
+    """Return available store/item choices and sales date bounds for the frontend."""
+    frame, _ = _sales_frame()
+    if frame.empty:
+        raise HTTPException(status_code=404, detail="Sales data has no valid records.")
+    scoped = frame[frame["store"] == store] if store is not None else frame
+    return {
+        "stores": sorted(int(value) for value in frame["store"].unique()),
+        "items": sorted(int(value) for value in scoped["item"].unique()),
+        "date_start": frame["date"].min().date().isoformat(),
+        "date_end": frame["date"].max().date().isoformat(),
+    }
 
 
 @app.get("/sales/summary", tags=["sales"])
@@ -159,52 +266,107 @@ def forecasts(
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """Return saved future forecast rows; holdout prediction files are deliberately excluded."""
-    files = sorted(FORECAST_DIR.glob("*.csv")) if FORECAST_DIR.is_dir() else []
-    parts: list[pd.DataFrame] = []
-    for path in files:
-        try:
-            frame = pd.read_csv(path)
-        except (OSError, UnicodeError, pd.errors.ParserError) as exc:
-            raise HTTPException(status_code=500, detail=f"Unable to read forecast {path.name}: {exc}") from exc
-        if frame.empty or {"actual", "actual_sales", "actuals"}.intersection(str(col).lower() for col in frame.columns):
-            continue
-        frame["_source"] = path.stem
-        parts.append(frame)
-    if not parts:
+    combined = _forecast_frame(store, item)
+    if combined.empty:
         return {"available": False, "message": "No exported future forecast CSV files are available.", "total": 0, "limit": limit, "offset": offset, "records": []}
-    combined = pd.concat(parts, ignore_index=True)
-    store_col = next((c for c in combined.columns if str(c).lower() in {"store", "store_id", "location", "branch"}), None)
-    item_col = next((c for c in combined.columns if str(c).lower() in {"item", "product", "product_id", "sku"}), None)
-    if store is not None and store_col:
-        combined = combined[pd.to_numeric(combined[store_col], errors="coerce") == store]
-    if item is not None and item_col:
-        combined = combined[pd.to_numeric(combined[item_col], errors="coerce") == item]
     total = len(combined)
     return {"available": True, "total": int(total), "limit": limit, "offset": offset, "records": _json_safe(combined.iloc[offset : offset + limit].to_dict(orient="records"))}
 
 
 @app.get("/models/comparison", tags=["models"])
-def model_comparison() -> dict[str, Any]:
-    """Return the saved time-series comparison report and ML model comparison separately."""
+def model_comparison(
+    store: int | None = Query(default=None, ge=1),
+    item: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
+    """Return current per-series reports plus the legacy aggregate comparisons."""
     return {
+        "training_reports": _training_reports(store, item),
         "time_series": {"json": _read_json(TS_METRICS_JSON), "csv": _read_csv_records(TS_METRICS_CSV)},
         "machine_learning": {"json": _read_json(ML_METRICS_JSON), "csv": _read_csv_records(ML_METRICS_CSV)},
     }
 
 
 @app.get("/models/evaluation", tags=["models"])
-def model_evaluation() -> dict[str, Any]:
-    """Return saved ML evaluation metrics, prediction-file summaries, and feature importance."""
+def model_evaluation(
+    store: int | None = Query(default=None, ge=1),
+    item: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
+    """Return current per-series metrics and legacy evaluation artifacts."""
     metrics = _read_json(ML_METRICS_JSON)
     prediction_summaries: dict[str, Any] = {}
-    prediction_dir = ROOT / "outputs" / "predictions"
     for name in ("prophet_test_predictions.csv", "xgboost_test_predictions.csv"):
-        path = prediction_dir / name
+        path = PREDICTION_DIR / name
         rows = _read_csv_records(path)
         prediction_summaries[name] = {"available": rows is not None, "records": len(rows) if rows is not None else 0}
     return {
+        "training_reports": _training_reports(store, item),
         "metrics": metrics,
         "feature_importance": _read_csv_records(FEATURE_IMPORTANCE_CSV),
         "holdout_predictions": prediction_summaries,
         "note": "Prediction artifacts are historical holdout evaluations and are not future forecasts.",
+    }
+
+
+@app.get("/inventory/recommendation", tags=["inventory"])
+def inventory_recommendation(
+    store: int = Query(ge=1),
+    item: int = Query(ge=1),
+    current_stock: float = Query(ge=0),
+    model: Literal["best", "lstm", "xgboost"] = "best",
+    lead_time_days: int = Query(default=7, ge=1),
+    cycle_stock_days: int = Query(default=14, ge=1),
+    service_level: float = Query(default=0.95, gt=0.5, lt=1.0),
+) -> dict[str, Any]:
+    """Calculate an inventory recommendation from the selected saved forecast."""
+    report_rows = _training_reports(store, item)
+    if model == "best":
+        if not report_rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No trained model report found for store {store}, item {item}.",
+            )
+        selected_model = str(report_rows[0]["report"].get("best_model", "")).lower()
+        if "lstm" in selected_model:
+            forecast_model = "lstm"
+        elif "xgboost" in selected_model:
+            forecast_model = "xgboost"
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported best_model value in saved report: {selected_model or 'missing'}.",
+            )
+    else:
+        forecast_model = model
+
+    forecast_path = FORECAST_DIR / f"{forecast_model}_s{store}_i{item}.csv"
+    if not forecast_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {forecast_model} future forecast found for store {store}, item {item}.",
+        )
+    try:
+        forecast_frame = pd.read_csv(forecast_path)
+    except (OSError, UnicodeError, pd.errors.ParserError) as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to read forecast {forecast_path.name}: {exc}") from exc
+
+    try:
+        report = compute_inventory_recommendation(
+            forecast_df=forecast_frame,
+            current_stock=current_stock,
+            store=store,
+            item=item,
+            model_name=forecast_model.upper(),
+            lead_time_days=lead_time_days,
+            cycle_stock_days=cycle_stock_days,
+            service_level=service_level,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to calculate inventory recommendation: {exc}") from exc
+
+    return {
+        "store": store,
+        "item": item,
+        "forecast_model": forecast_model,
+        "recommendation": report.to_dict(),
+        "note": "Safety stock uses forecast variability as a proxy; validate against operational lead-time and demand data.",
     }

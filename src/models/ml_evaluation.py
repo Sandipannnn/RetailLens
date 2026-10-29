@@ -15,7 +15,7 @@ Executes the complete machine-learning evaluation workflow:
    11. XGBoost feature importance
    12. Persist XGBoost model
    13. Export outputs (CSV, JSON, figures)
-   14. Return results dict for Streamlit / downstream consumers
+   14. Return results dict for API / downstream consumers
 
 All metric values are dynamically calculated from actual predictions.
 No results are hard-coded.
@@ -246,7 +246,7 @@ def run_ml_evaluation_pipeline(
 
     Returns
     -------
-    results dict compatible with Streamlit and tests:
+    results dict compatible with API and tests:
     {
         "Prophet":  {"MAE": float, "RMSE": float, "MAPE": float, "sMAPE": float},
         "XGBoost":  {"MAE": float, "RMSE": float, "MAPE": float, "sMAPE": float},
@@ -453,7 +453,7 @@ def run_ml_evaluation_pipeline(
     # ------------------------------------------------------------------
 
     # Extended rows for the main ts_model_comparison.csv
-    # (kept compatible with the existing Streamlit REPORT_PATHS consumer)
+    # Keep the shared comparison report format stable for downstream consumers.
     comparison_rows = []
     for model_name, mvals in model_metrics.items():
         row = {
@@ -497,7 +497,7 @@ def run_ml_evaluation_pipeline(
     with open(os.path.join(output_dir, "model_comparison.json"), "w") as fh:
         json.dump(ml_json_payload, fh, indent=2)
 
-    # Update the shared comparison report (used by Streamlit and existing evaluate_ts.py)
+    # Update the shared comparison report used by downstream consumers.
     _update_shared_report(
         comparison_rows,
         best_model_name,

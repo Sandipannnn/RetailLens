@@ -14,8 +14,8 @@ Run from project root:
     python src/train.py --store 1 --item 1 --force-retrain
 
 IMPORTANT:
-- Run this before launching the Streamlit dashboard.
-- The dashboard loads saved models — it does NOT retrain on startup.
+- Run this before requesting saved forecasts or inventory recommendations from the API.
+- The API reads saved artifacts and does NOT retrain models when requests arrive.
 """
 
 import argparse
@@ -34,7 +34,6 @@ from src.clean_data import clean_data, PROCESSED_PATH
 from src.models.lstm_model import LSTMForecaster
 from src.models.xgboost_model import RetailXGBoostForecaster
 from src.models.model_selector import ModelSelector
-from src.inventory import compute_inventory_recommendation
 
 logging.basicConfig(
     level=logging.INFO,
@@ -190,7 +189,7 @@ def train_and_evaluate(
 
     logger.info("\n" + "=" * 60)
     logger.info(f" Training complete.  Best model: {best_name}")
-    logger.info(f" Dashboard: streamlit run app/streamlit_app.py")
+    logger.info(" API: python -m uvicorn api.main:app --reload")
     logger.info("=" * 60 + "\n")
 
     return results

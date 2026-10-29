@@ -9,7 +9,7 @@ This note covers only the Machine Learning & Evaluation contribution:
 - Calculate MAE, RMSE, and MAPE.
 - Compare model results and select the best-performing model.
 
-It does not describe the EDA, LSTM, Prophet implementation details, inventory logic, or Streamlit UI except where those parts consume this track's outputs.
+It does not describe the EDA, LSTM, Prophet implementation details, inventory logic, or API except where those parts consume this track's outputs.
 
 ---
 
@@ -375,5 +375,5 @@ Used as dependencies but not the main ownership area:
 - `data/processed/sales_clean.csv`
 - Prophet implementation files
 - LSTM implementation files
-- `app/streamlit_app.py`
-- inventory and dashboard modules
+- `api/main.py`
+- inventory and API modules

@@ -1,0 +1,58 @@
+:root {
+  font-family: 'Aptos', 'Segoe UI', sans-serif;
+  color: #263528;
+  background: #f3f1e7;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+
+  --canvas: #f3f1e7;
+  --card: #fffefa;
+  --card-soft: #fbfaf4;
+  --sap: #557a4e;
+  --sap-dark: #34543a;
+  --sap-deep: #243f2c;
+  --sap-light: #e8eee1;
+  --ink: #263528;
+  --muted: #828578;
+  --line: #e8e6db;
+  --sand: #eee8d8;
+  --warning: #a76e3f;
+  --danger: #a55443;
+  --shadow: 0 14px 40px rgb(52 71 47 / 5%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 360px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgb(85 122 78 / 28%);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #fff;
+  background: var(--sap);
+}

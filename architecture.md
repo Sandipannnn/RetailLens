@@ -1,109 +1,87 @@
 # RetailLens — System Architecture
 
-## 1. System Overview
+## 1. System overview
 
-**RetailLens** is an end-to-end predictive retail analytics and inventory recommendation platform designed to forecast store-item demand across 500 individual time series (10 stores × 50 items) spanning 5 years of daily transactions (2013–2017).
+RetailLens forecasts daily demand for store-item series using LSTM and XGBoost. The training pipeline compares the models on a chronological holdout period and records the selected model, metrics, and future forecasts. A read-only FastAPI service exposes historical sales and those saved artifacts.
 
-The system operates on a dual-model architecture:
-1. **AI Model (Deep Learning)**: Long Short-Term Memory (**LSTM**) neural network capturing complex temporal dependencies, sequential context, and long-range non-linear trends.
-2. **ML Model (Machine Learning)**: Extreme Gradient Boosting (**XGBoost**) utilizing tabular feature engineering (calendar signals, multi-horizon lags, rolling statistics).
-
-Both models compete on a strict chronological holdout test period. A data-driven `ModelSelector` dynamically identifies the superior model per series based on holdout RMSE/MAE (with no hard-coded winner), passing the optimal forecast to the inventory optimization engine and Streamlit dashboard.
+The frontend is a React/TypeScript application using a light beige and sap-green palette. Its left feature menu slides in as a drawer, and the forecast view supports chart, table, and split layouts.
 
 ```mermaid
 graph TD
-    A[Raw Sales Data] --> B[Data Cleaning & Validation]
-    B --> C[Processed Clean Data: sales_clean.csv]
-    
-    C --> D[Exploratory Data Analysis]
-    C --> E[Sliding-Window Sequence Builder]
-    C --> F[Tabular Feature Engineering: Lags/Rolling/Calendar]
-    
-    E --> G["🧠 AI Model: LSTM (Deep Learning)"]
-    F --> H["⚡ ML Model: XGBoost (Traditional ML)"]
-    
-    G --> I[Holdout Evaluation: MAE, RMSE, MAPE]
-    H --> I
-    
-    I --> J["Model Selector: Dynamic Selection (Lowest RMSE)"]
-    J --> K[Multi-Step Future Forecasts: 30 / 60 / 90 Days]
-    
-    K --> L[Inventory Engine: Safety Stock & Reorder Points]
-    K --> M[Streamlit Interactive Dashboard]
-    L --> M
+    A[Raw Sales CSV] --> B[Cleaning and Validation]
+    B --> C[Processed Sales]
+    C --> D[Feature Engineering and Sequence Building]
+    D --> E[LSTM Training]
+    D --> F[XGBoost Training]
+    E --> G[Chronological Holdout Evaluation]
+    F --> G
+    G --> H[RMSE Model Selection]
+    H --> I[Per-Series Report and Future Forecasts]
+    C --> J[FastAPI]
+    I --> J
+    J --> K[React Frontend]
+    J --> L[Inventory Recommendation Endpoint]
 ```
 
----
+## 2. Data and training
 
-## 2. Dual-Model Architecture & Data Flow
+### Data contract
 
-### 2.1 Data Tier (`data/`, `src/clean_data.py`, `src/data_generator.py`)
-- **Schema Contract**:
-  - `date`: `YYYY-MM-DD` (ISO-8601 string or `pd.Timestamp`)
-  - `store`: `int` (Store ID 1 to 10)
-  - `item`: `int` (Item ID 1 to 50)
-  - `sales`: `float` or `int` (Daily sales count $\ge 0$)
-- **Data Partitions**:
-  - `data/raw/`: Original transactional dataset (`train.csv`).
-  - `data/processed/`: Cleansed, chronological, gap-free series (`sales_clean.csv`).
-  - `data/processed/forecasts/`: Exported forecast outputs (`lstm_s{store}_i{item}.csv`, `xgboost_s{store}_i{item}.csv`).
-  - `data/processed/models/`: Saved model artifacts (`.keras` weights, `.joblib` estimators, scalers).
+Sales files use the columns `date`, `store`, `item`, and `sales`. The Kaggle training dataset spans 2013–2017 and contains 500 store-item series. Price, promotion, holiday, and on-hand inventory data are not included.
 
-### 2.2 AI Model Tier: LSTM Deep Learning (`src/models/lstm_model.py`, `src/features/lstm_features.py`)
-- **Architecture**:
-  - 2-layer stacked LSTM network built with TensorFlow/Keras.
-  - Dropout regularization (0.2) to prevent overfitting on seasonal noise.
-  - Dense prediction head for multi-step autoregressive forecasting.
-- **Feature Pipeline**:
-  - MinMax normalization fitted strictly on training partition (preventing data leakage).
-  - Sliding-window sequences of lookback $W$ (default: 30 days) mapped to target $y_{t+1}$.
-  - Uncertainty quantification derived from rolling residual standard deviation.
+- `data/raw/train.csv`: source data supplied by the user.
+- `data/processed/sales_clean.csv`: cleaned data generated locally.
+- `data/processed/models/`: locally generated LSTM/XGBoost models and scalers.
+- `data/processed/forecasts/`: locally generated future forecast CSVs.
+- `reports/model_comparison_s{store}_i{item}.json`: per-series holdout metrics and selected model.
 
-### 2.3 ML Model Tier: XGBoost (`src/models/xgboost_model.py`, `src/features/feature_engineering.py`)
-- **Feature Matrix**:
-  - **Calendar**: Day of week, day of month, month, year, weekend indicator, day of year.
-  - **Lags**: 7, 14, 21, 28, 30, 60, 90, 365 days.
-  - **Rolling Aggregations**: 7, 14, 30, 90-day rolling means and standard deviations (strictly lagged to prevent lookahead leakage).
-- **Model**:
-  - Gradient boosted trees optimized with early stopping on validation split.
-  - Recursive multi-step projection for 30, 60, and 90-day future horizons.
+Data, model binaries, and future forecasts are ignored by Git. When raw data is missing, `src/clean_data.py` generates synthetic sample data for demonstrations. Synthetic-data model results must not be presented as Kaggle results.
 
-### 2.4 Model Selection & Training Pipeline (`src/models/model_selector.py`, `src/train.py`)
-- **Holdout Evaluation**:
-  - Chronological holdout window (default: last 90 days) ensuring zero lookahead bias.
-  - Metrics computed: MAE, RMSE, MAPE.
-- **Dynamic Selection (`ModelSelector`)**:
-  - Compares holdout RMSE as primary metric, with MAE as tie-breaker.
-  - Selection is completely data-driven — no predetermined winner.
-  - Outputs comprehensive comparison summary to `reports/model_comparison_s{store}_i{item}.json`.
+### Models
 
-### 2.5 Inventory Recommendation Tier (`src/inventory.py`)
-- Computes inventory parameters using the winning model's forecast:
-  - **Lead-Time Demand**: $\hat{D}_L = \sum_{t=1}^{L} \hat{y}_t$
-  - **Safety Stock**: $SS = Z_{\alpha} \times \sigma_d \times \sqrt{L}$ (calibrated for 95% service level)
-  - **Reorder Point (ROP)**: $ROP = \hat{D}_L + SS$
-  - **Alerting**: Low-stock trigger when Current Inventory $\le ROP$.
+- **LSTM**: sequence model with a training-only fitted scaler and sliding-window inputs.
+- **XGBoost**: gradient-boosted trees using calendar features, lags, and rolling statistics.
+- **Selection**: `src/models/model_selector.py` chooses the lowest holdout RMSE, then uses MAE to break ties. Selection and performance reporting currently use the same holdout window; a separate final evaluation window or rolling-origin validation is recommended for less biased performance estimates.
+- **Forecasts**: `src/train.py` exports 90-day forecasts for both trained models. Each run currently trains one store-item series (default Store 1, Item 1).
 
-### 2.6 Dashboard Tier (`app/streamlit_app.py`)
-- Interactive multi-tab web application:
-  - **Overview**: High-level sales metrics, KPI summary.
-  - **Historical Analysis**: Time-series exploration, seasonality patterns.
-  - **Forecast**: Interactive Plotly projections with confidence bands for 30/60/90 days.
-  - **Model Comparison**: Side-by-side metric tables (AI LSTM vs ML XGBoost).
-  - **ML Evaluation**: Architectural breakdown, feature importances, holdout comparisons.
-  - **Stock Alerts**: Automated inventory health recommendations, reorder warnings.
-  - **Data Explorer**: Raw data filtering and CSV exports.
+## 3. API and inventory recommendations
 
----
+`api/main.py` provides:
 
-## 3. Technology Stack & Dependencies
+- Health, filtered sales summaries, and paginated historical sales.
+- Saved future forecasts, excluding holdout-prediction files.
+- Current per-series training reports alongside legacy evaluation artifacts.
+- `/inventory/recommendation`, which takes a store-item pair and current stock from the caller, then uses the selected saved forecast.
+
+Inventory calculation in `src/inventory.py` estimates:
+
+- Lead-time demand from the first `lead_time_days` forecast values.
+- Safety stock from forecast variability as a proxy.
+- Reorder point as lead-time demand plus safety stock.
+- Suggested quantity as stock needed to reach reorder point plus one cycle of demand.
+
+The inventory endpoint is a calculation, not a connection to an inventory system. Confirm current stock, demand variability, lead time, and service levels against operational data before using its recommendations for purchasing.
+
+The API is read-only and does not train models or write project files. Set `RETAILLENS_CORS_ORIGINS` to a comma-separated origin list when the frontend is hosted on a non-default origin.
+
+## 4. Local workflow
+
+1. Provide Kaggle `train.csv` at `data/raw/train.csv`.
+2. Install `requirements.txt` and run `python src/train.py --store 1 --item 1`.
+3. Start the API with `python -m uvicorn api.main:app --reload`.
+4. Open <http://127.0.0.1:8000/docs> to inspect and call the endpoints.
+5. Start the frontend from the `frontend/` directory with `npm run dev`.
+
+For an API-only environment, install `api/requirements.txt`.
+
+## 5. Technology stack
 
 | Layer | Technologies |
 |---|---|
-| Core Language | Python 3.10+ |
-| Data Processing | `pandas`, `numpy` |
-| AI / Deep Learning | `tensorflow`, `keras` |
-| Machine Learning | `xgboost`, `scikit-learn`, `joblib` |
-| Visualization & Metrics | `plotly`, `matplotlib`, `scipy` |
-| Web Application | `streamlit` |
-| Testing | `pytest`, `unittest` |
+| Core language | Python 3.10+ |
+| Data processing | pandas, NumPy |
+| Deep learning | TensorFlow/Keras |
+| Machine learning | XGBoost, scikit-learn, joblib |
+| API | FastAPI, Uvicorn |
+| Frontend | React, TypeScript, Vite, Recharts |
+| Testing | pytest |

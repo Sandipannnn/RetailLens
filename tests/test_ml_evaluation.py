@@ -8,7 +8,7 @@ Tests cover:
   - Metric functions (MAE, RMSE, MAPE, zero-value handling)
   - Model comparison and best-model selection
   - Prophet hold-out evaluation (compatibility check)
-  - Integration: ML output consumed by dashboard utilities
+  - Integration: ML output and report selection compatibility
 
 All unit tests use small deterministic synthetic datasets to keep execution
 fast and avoid dependency on the full production dataset.
@@ -555,11 +555,11 @@ class TestProphetHoldout(unittest.TestCase):
 
 
 # ===========================================================================
-# 12. Dashboard integration
+# 12. Report integration
 # ===========================================================================
 
-class TestDashboardIntegration(unittest.TestCase):
-    """Verify ML results structure is compatible with Streamlit consumer."""
+class TestReportIntegration(unittest.TestCase):
+    """Verify ML results and comparison report selection remain consistent."""
 
     def test_model_results_structure(self):
         model_results = {
@@ -572,15 +572,15 @@ class TestDashboardIntegration(unittest.TestCase):
         )
         self.assertEqual(best, model_results["best_model"])
 
-    def test_comparison_df_readable_by_streamlit(self):
-        """Simulate how Streamlit's load_comparison() and best_model() use the data."""
+    def test_comparison_df_selects_the_lowest_error_model(self):
+        """Verify comparison reports can be ranked using the configured metrics."""
         comparison = pd.DataFrame([
             {"Model": "Prophet", "MAE": 5.0, "RMSE": 7.0, "MAPE (%)": 12.0},
             {"Model": "XGBoost", "MAE": 4.0, "RMSE": 6.0, "MAPE (%)": 10.0},
         ])
 
-        # Replicate Streamlit's best_model() logic
-        metric_cols = [c for c in ("RMSE", "MAE", "MAPE (%)") if c in comparison.columns]
+        # Match the legacy ML evaluation report's MAE-first priority.
+        metric_cols = [c for c in ("MAE", "RMSE", "MAPE (%)") if c in comparison.columns]
         ranked = comparison.copy()
         ranked[metric_cols] = ranked[metric_cols].apply(pd.to_numeric, errors="coerce")
         ranked = ranked.dropna(subset=metric_cols)

@@ -1,61 +1,56 @@
 # RetailLens Presentation Outline
 
 ## Slide 1: RetailLens
-Retail Sales Forecasting & Analytics
+Retail Sales Forecasting API
 
-## Slide 2: Problem Statement
-Retail teams need visibility into sales trends, future demand, product performance, and potential stock risks.
+## Slide 2: Problem
+Retail teams need reliable insight into historical sales and future store-item demand to make better planning decisions.
 
-## Slide 3: Project Objective
-- Analyze historical sales
-- Forecast future demand
-- Compare forecasting models
-- Surface operational attention areas in a dashboard
+## Slide 3: Project objective
+- Clean and analyze daily retail sales.
+- Train and compare LSTM and XGBoost forecasting models.
+- Expose historical sales, saved forecasts, evaluation results, and inventory calculations through an API.
 
-## Slide 4: System Architecture
-Dataset → Data Cleaning → Exploratory Analysis → Feature Engineering → Prophet and XGBoost → Evaluation → Best Model → Forecast → Dashboard → Alerts
+## Slide 4: Architecture
+Sales CSV → Cleaning → Feature engineering and sequence building → LSTM/XGBoost → Chronological holdout evaluation → Model selection and forecast exports → FastAPI.
 
-The current repository implements the cleaning, Prophet, SARIMA benchmark, evaluation, and dashboard layers. XGBoost integration is not present in the current source tree.
+The API is implemented. The React frontend uses a beige and sap-green theme, a slide-out feature menu, and chart/table/split forecasting layouts.
 
-## Slide 5: Dashboard Features
-- Interactive store, product, and date filters
-- KPI cards for sales and evaluation metrics
-- Daily, weekly, and monthly historical views
-- Forecast horizon and model controls
-- Model comparison, data tables, downloads, and alerts
+## Slide 5: Data
+- Kaggle Store Item Demand Forecasting Challenge.
+- 10 stores × 50 items, with daily observations from 2013 through 2017.
+- No price, promotions, holidays, or current inventory fields.
+- Source data and trained model/forecast binaries are local and ignored by Git; one example comparison report is checked in.
 
-## Slide 6: Model Comparison
-The available evaluation report compares the following hold-out results:
+## Slide 6: Model evaluation example
+The saved Store 1, Item 1 training report records a 90-day chronological holdout:
 
 | Model | MAE | RMSE | MAPE |
 |---|---:|---:|---:|
-| Prophet (Default Baseline) | 5.25 | 6.81 | 11.64% |
-| Prophet (Tuned) | 4.95 | 6.26 | 10.75% |
-| SARIMA (1,1,1)x(1,1,1,7) | 8.36 | 10.50 | 18.80% |
+| LSTM | 4.4893 | 5.5637 | 9.5615% |
+| XGBoost | 4.9928 | 6.1196 | 10.6410% |
 
-The dashboard selects the best model dynamically by RMSE, then MAE, then MAPE. The current report therefore selects Prophet (Tuned).
+LSTM is selected for this series by the lower RMSE. These are one-series results, not an aggregate score across all 500 series. Regenerate reports when models, data, or training settings change.
 
-## Slide 7: Forecasting
-Historical sales and future forecasts are shown together. Lower and upper bounds are displayed when the forecast export provides them. Supported horizons are 30, 60, and 90 days where output files exist.
+## Slide 7: API
+- Filter and summarize historical sales.
+- Retrieve saved future forecasts separately from historical holdout predictions.
+- Access per-series comparison reports and evaluation artifacts.
+- Explore the API interactively through `/docs`.
+- Use the slide-out menu to switch between forecast, sales history, model comparison, and inventory views.
+- Switch the forecast display between chart, table, or split layouts.
 
-## Slide 8: Stock Alerts
-When an inventory column exists, the dashboard compares available stock with expected demand. Without inventory data, it uses a clearly labelled Demand-Based Attention Threshold and never presents forecast demand as actual stock.
+## Slide 8: Inventory recommendation
+The caller supplies current stock. The API calculates lead-time demand, safety stock, reorder point, and suggested reorder quantity from a saved forecast. The source dataset has no inventory data; safety stock uses forecast variability as a proxy and requires operational validation.
 
-## Slide 9: Technology Stack
-Python, Pandas, NumPy, Plotly, Streamlit, Prophet, SARIMA, XGBoost, scikit-learn, and pytest.
+## Slide 9: Limitations
+- No external demand signals or inventory feed.
+- Model selection and performance reporting currently share a holdout window.
+- Training and saved reports are per store-item series.
+- A production deployment pipeline is not yet included.
 
-## Slide 10: Results
-The tuned Prophet model has the lowest reported RMSE (6.26), MAE (4.95), and MAPE (10.75%) among the available evaluated models.
-
-## Slide 11: Limitations
-- The source dataset has no inventory, price, promotion, or holiday business features.
-- Forecast accuracy depends on historical data quality and coverage.
-- XGBoost outputs are not currently available in the repository.
-- External demand drivers are not represented.
-
-## Slide 12: Future Improvements
-- Add XGBoost forecast exports and integrated comparison
-- Connect real-time sales and inventory systems
-- Automate model retraining and monitoring
-- Add promotion-aware and external-variable forecasting
-- Deploy to a managed cloud environment
+## Slide 10: Next steps
+- Add a separate validation process and final untouched test window.
+- Connect an authoritative current-stock source and evaluate inventory recommendations with business data.
+- Add browser-level UI tests and accessibility checks.
+- Add automated CI and API integration checks.
