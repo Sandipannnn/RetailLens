@@ -1,0 +1,34 @@
+{
+  "store": 3,
+  "item": 39,
+  "holdout_days": 90,
+  "lstm_metrics": {
+    "MAE": 8.963,
+    "RMSE": 10.9901,
+    "MAPE": 19.1389,
+    "sMAPE": 17.3902
+  },
+  "xgb_metrics": {
+    "MAE": 7.345,
+    "RMSE": 9.2148,
+    "MAPE": 14.6245,
+    "sMAPE": 14.4063
+  },
+  "best_model": "XGBoost (ML)",
+  "comparison": [
+    {
+      "Model": "XGBoost (ML)",
+      "MAE": 7.345,
+      "RMSE": 9.2148,
+      "MAPE (%)": 14.62,
+      "sMAPE (%)": 14.41
+    },
+    {
+      "Model": "LSTM (AI)",
+      "MAE": 8.963,
+      "RMSE": 10.9901,
+      "MAPE (%)": 19.14,
+      "sMAPE (%)": 17.39
+    }
+  ]
+}
