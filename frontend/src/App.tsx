@@ -19,7 +19,7 @@ import {
   Table2,
 } from 'lucide-react'
 import './App.css'
-import { demandMetrics } from './demandMetrics'
+import { chartGranularity, demandMetrics, type ChartGranularity } from './demandMetrics'
 import { itemName, storeName } from './catalog'
 import ForecastChart, { type ChartPoint } from './ForecastChart'
 
@@ -151,11 +151,12 @@ function formatDate(value: string | null | undefined): string {
     : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
-function compactDate(value: string): string {
+function compactChartDate(value: string, granularity: ChartGranularity): string {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`)
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date)
+  if (Number.isNaN(date.getTime())) return value
+  return granularity === 'year'
+    ? new Intl.DateTimeFormat('en-US', { year: 'numeric' }).format(date)
+    : new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(date)
 }
 
 function metricValue(value: number | undefined): string {
@@ -175,7 +176,7 @@ function App() {
   const [store, setStore] = useState<number | null>(null)
   const [item, setItem] = useState<number | null>(null)
   const [items, setItems] = useState<number[]>([])
-  const [horizon, setHorizon] = useState(30)
+  const [horizon] = useState(30)
   const [model, setModel] = useState('xgboost')
   const [viewMode, setViewMode] = useState<ViewMode>('chart')
   const [sales, setSales] = useState<SalesRecord[]>([])
@@ -271,7 +272,13 @@ function App() {
       })}`, controller.signal),
       getJson<ForecastResponse>(`/forecasts?${queryString({ store, item, limit: 1000 })}`, controller.signal),
       getJson<HistoricalComparisonResponse>(`/sales/comparison?${filter}`, controller.signal),
-      getJson<ComparisonResponse>(`/models/comparison?${queryString({ store, item, holdout_days: horizon })}`, controller.signal),
+      getJson<ComparisonResponse>(`/models/comparison?${queryString({
+        store,
+        item,
+        holdout_days: horizon,
+        start_date: dateRange.start || undefined,
+        end_date: dateRange.end || undefined,
+      })}`, controller.signal),
     ])
       .then(([salesSummary, salesPage, forecastPage, comparisonPage, modelData]) => {
         if (!active) return
@@ -304,9 +311,11 @@ function App() {
       .sort((left, right) => recordDate(left).localeCompare(recordDate(right)))
       .slice(0, horizon)
   }, [forecasts, horizon, model, selectedModelName])
-  // Keep the future horizon readable instead of squeezing it beside years of history.
-  // The sales history table and summary still use the entire selected date range.
-  const historical = useMemo(() => sales.slice(-90), [sales])
+  const historical = useMemo(() => sales, [sales])
+  const chartGranularityValue = useMemo(
+    () => chartGranularity(dateRange.start, dateRange.end),
+    [dateRange.start, dateRange.end],
+  )
   const chartData = useMemo<ChartPoint[]>(() => [
     ...historical.map((record) => ({
       date: record.date,
@@ -361,7 +370,13 @@ function App() {
         const filter = queryString({ store: store!, item: item!, limit: 1000 })
         const [forecastPage, modelData] = await Promise.all([
           getJson<ForecastResponse>(`/forecasts?${filter}`, controller.signal),
-          getJson<ComparisonResponse>(`/models/comparison?${queryString({ store: store!, item: item!, holdout_days: horizon })}`, controller.signal),
+          getJson<ComparisonResponse>(`/models/comparison?${queryString({
+            store: store!,
+            item: item!,
+            holdout_days: horizon,
+            start_date: dateRange.start || undefined,
+            end_date: dateRange.end || undefined,
+          })}`, controller.signal),
         ])
         if (!active) return
         setForecasts(forecastPage.records)
@@ -572,15 +587,6 @@ function App() {
                 </div>
               </div>
             </>}
-            {(page === 'forecast' || page === 'models') && (
-              <div className="horizon-picker" aria-label="Forecast horizon">
-                {[30, 60, 90].map((days) => (
-                  <button className={horizon === days ? 'selected' : ''} key={days} onClick={() => setHorizon(days)} aria-pressed={horizon === days} type="button">
-                    {days}<span>d</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </section>
           {(page === 'forecast' || page === 'sales') && (
             <form className="date-search-panel" onSubmit={applyDateSearch}>
@@ -664,7 +670,7 @@ function App() {
                     <h2>Sales trajectory <span className="heading-separator">·</span> {storeName(store)}, {itemName(item)}</h2>
                     <p className="panel-subtitle" aria-live="polite">
                       {selectedModelName} · {horizon}-day forecast · Showing {visibleForecasts.length} forecast days.
-                      {' '}Chart: latest {historical.length} historical days. Table: all {sales.length} historical records in your date range.
+                      {' '}Chart: {historical.length} historical records in your selected date range plus the future forecast. Table: all {sales.length} historical records in your date range.
                     </p>
                   </div>
                   <div className="panel-actions">
@@ -694,7 +700,7 @@ function App() {
                         <ForecastChart
                           data={chartData}
                           formatDate={formatDate}
-                          compactDate={compactDate}
+                          compactDate={(value) => compactChartDate(value, chartGranularityValue)}
                           formatNumber={formatNumber}
                         />
                       ) : (
