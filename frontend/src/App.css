@@ -777,6 +777,7 @@ h2 {
 
 .table-scroll {
   width: 100%;
+  max-height: 600px;
   overflow: auto;
 }
 
@@ -1756,4 +1757,42 @@ tbody tr:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Numeric headings align with their values at every table width. */
+.demand-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.demand-table .date-column { width: 17%; }
+.demand-table .period-column { width: 15%; }
+.demand-table th { z-index: 1; }
+.demand-table caption {
+  padding: 12px 14px;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.6;
+  color: #65715f;
+  background: #faf9f3;
+}
+.demand-table caption span { display: block; }
+
+.demand-table-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: #65715f;
+}
+
+.demand-table-filter select {
+  padding: 8px 12px;
+  border: 1px solid #dddcd1;
+  border-radius: 6px;
+  background: #faf9f3;
+  color: inherit;
+  font: inherit;
+  max-width: 100%;
 }

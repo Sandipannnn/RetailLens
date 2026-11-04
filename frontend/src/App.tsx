@@ -19,6 +19,8 @@ import {
   Table2,
 } from 'lucide-react'
 import './App.css'
+import { demandMetrics } from './demandMetrics'
+import { itemName, storeName } from './catalog'
 import ForecastChart, { type ChartPoint } from './ForecastChart'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '')
@@ -83,6 +85,16 @@ interface ComparisonResponse {
   training_reports: TrainingReport[]
 }
 
+interface HistoricalComparisonResponse {
+  records: Array<{
+    date: string
+    actual_sales: number
+    yhat: number
+    yhat_lower: number
+    yhat_upper: number
+  }>
+}
+
 interface ForecastResponse {
   available: boolean
   records: ForecastRecord[]
@@ -101,8 +113,8 @@ const pages: { id: PageKey; label: string; icon: typeof LayoutDashboard; hint: s
   { id: 'inventory', label: 'Inventory', icon: PackageCheck, hint: 'Reorder planning' },
 ]
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`)
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, { signal, cache: 'no-store' })
   const payload = await response.json().catch(() => null) as { detail?: string } | null
   if (!response.ok) {
     throw new Error(payload?.detail ?? `Request failed (${response.status})`)
@@ -123,7 +135,7 @@ function recordDate(record: ForecastRecord): string {
 }
 
 function recordForecast(record: ForecastRecord): number {
-  return Number(record.yhat ?? record.prediction ?? record.predicted_sales ?? record.forecast ?? 0)
+  return Number(record.yhat ?? record.prediction ?? record.predicted_sales ?? record.forecast ?? NaN)
 }
 
 function formatNumber(value: number | null | undefined, digits = 0): string {
@@ -157,15 +169,19 @@ function App() {
   const [options, setOptions] = useState<SalesOptions | null>(null)
   const [dateDraft, setDateDraft] = useState({ start: '', end: '' })
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0)
+  const [itemsStore, setItemsStore] = useState<number | null>(null)
   const [store, setStore] = useState<number | null>(null)
   const [item, setItem] = useState<number | null>(null)
   const [items, setItems] = useState<number[]>([])
   const [horizon, setHorizon] = useState(30)
-  const [model, setModel] = useState('best')
+  const [model, setModel] = useState('xgboost')
   const [viewMode, setViewMode] = useState<ViewMode>('chart')
   const [sales, setSales] = useState<SalesRecord[]>([])
   const [summary, setSummary] = useState<SalesSummary | null>(null)
   const [forecasts, setForecasts] = useState<ForecastRecord[]>([])
+  const [historicalComparison, setHistoricalComparison] = useState<HistoricalComparisonResponse['records']>([])
   const [trainingReport, setTrainingReport] = useState<TrainingReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -175,6 +191,7 @@ function App() {
   const [inventory, setInventory] = useState<InventoryResponse | null>(null)
   const [inventoryLoading, setInventoryLoading] = useState(false)
   const [inventoryError, setInventoryError] = useState('')
+  const [inventoryRequest, setInventoryRequest] = useState<{ stock: number; leadTime: number; cycleDays: number } | null>(null)
 
   useEffect(() => {
     let active = true
@@ -206,17 +223,37 @@ function App() {
       .then((data) => {
         if (!active) return
         setItems(data.items)
-        setItem(data.items[0] ?? null)
+        setItem((current) => current !== null && data.items.includes(current) ? current : data.items[0] ?? null)
+        setItemsStore(store)
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'Unable to load item choices.')
+        if (active) {
+          setError(cause instanceof Error ? cause.message : 'Unable to load item choices.')
+          setLoading(false)
+        }
       })
     return () => { active = false }
   }, [store])
 
   useEffect(() => {
-    if (store === null || item === null) return
+    setSummary(null)
+    setSales([])
+    setForecasts([])
+    setHistoricalComparison([])
+    setTrainingReport(null)
+    setError('')
+    if (store === null || item === null || itemsStore !== store) {
+      setLoading(store !== null && itemsStore !== store)
+      return
+    }
+    if (dateRange.start && dateRange.end && dateRange.start > dateRange.end) {
+      setError('The start date must be on or before the end date.')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
     let active = true
+    const controller = new AbortController()
     const filter = queryString({
       store,
       item,
@@ -224,22 +261,24 @@ function App() {
       end_date: dateRange.end || undefined,
     })
     Promise.all([
-      getJson<SalesSummary>(`/sales/summary?${filter}`),
+      getJson<SalesSummary>(`/sales/summary?${filter}`, controller.signal),
       getJson<{ records: SalesRecord[] }>(`/sales?${queryString({
         store,
         item,
         start_date: dateRange.start || undefined,
         end_date: dateRange.end || undefined,
         limit: 10000,
-      })}`),
-      getJson<ForecastResponse>(`/forecasts?${queryString({ store, item, limit: 1000 })}`),
-      getJson<ComparisonResponse>(`/models/comparison?${filter}`),
+      })}`, controller.signal),
+      getJson<ForecastResponse>(`/forecasts?${queryString({ store, item, limit: 1000 })}`, controller.signal),
+      getJson<HistoricalComparisonResponse>(`/sales/comparison?${filter}`, controller.signal),
+      getJson<ComparisonResponse>(`/models/comparison?${queryString({ store, item, holdout_days: horizon })}`, controller.signal),
     ])
-      .then(([salesSummary, salesPage, forecastPage, modelData]) => {
+      .then(([salesSummary, salesPage, forecastPage, comparisonPage, modelData]) => {
         if (!active) return
         setSummary(salesSummary)
         setSales(salesPage.records)
         setForecasts(forecastPage.records)
+        setHistoricalComparison(comparisonPage.records)
         setTrainingReport(modelData.training_reports[0] ?? null)
       })
       .catch((cause: unknown) => {
@@ -248,23 +287,26 @@ function App() {
         setSummary(null)
         setSales([])
         setForecasts([])
+        setHistoricalComparison([])
         setTrainingReport(null)
       })
       .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [store, item, dateRange.start, dateRange.end])
+    return () => { active = false; controller.abort() }
+  }, [store, item, itemsStore, dateRange.start, dateRange.end, refreshKey, horizon])
 
   const bestModel = trainingReport?.report.best_model ?? ''
-  const selectedModelName = model === 'best' ? bestModel : model
+  const selectedModelName = model === 'xgboost' ? 'XGBoost' : 'LSTM'
   const visibleForecasts = useMemo(() => {
     const normalized = selectedModelName.toLowerCase()
     return forecasts
-      .filter(() => model !== 'best' || normalized.length > 0)
+      .filter((record) => Number.isFinite(recordForecast(record)))
       .filter((record) => !normalized || (record._source ?? '').toLowerCase().includes(normalized.split(' ')[0]))
       .sort((left, right) => recordDate(left).localeCompare(recordDate(right)))
       .slice(0, horizon)
   }, [forecasts, horizon, model, selectedModelName])
-  const historical = useMemo(() => sales, [sales])
+  // Keep the future horizon readable instead of squeezing it beside years of history.
+  // The sales history table and summary still use the entire selected date range.
+  const historical = useMemo(() => sales.slice(-90), [sales])
   const chartData = useMemo<ChartPoint[]>(() => [
     ...historical.map((record) => ({
       date: record.date,
@@ -275,20 +317,70 @@ function App() {
       date: recordDate(record),
       actual: null,
       forecast: recordForecast(record),
-      confidence: record.yhat_lower !== undefined && record.yhat_upper !== undefined
+      confidence: record.yhat_lower != null && record.yhat_upper != null
         ? [Number(record.yhat_lower), Number(record.yhat_upper)] as [number, number]
         : undefined,
     })),
   ], [historical, visibleForecasts])
-  const forecastTotal = visibleForecasts.reduce((sum, record) => sum + recordForecast(record), 0)
-  const averageForecast = visibleForecasts.length ? forecastTotal / visibleForecasts.length : null
+  const tableData = useMemo<ChartPoint[]>(() => [
+    ...chartData.filter((record) => record.forecast !== null),
+    ...sales.map((record) => {
+      const comparison = historicalComparison.find((row) => row.date === record.date)
+      return {
+        date: record.date,
+        actual: record.sales,
+        forecast: comparison?.yhat ?? null,
+        confidence: comparison
+          ? [comparison.yhat_lower, comparison.yhat_upper] as [number, number]
+          : undefined,
+      }
+    }),
+  ], [chartData, historicalComparison, sales])
+  const metrics = demandMetrics(sales, visibleForecasts.map(recordForecast), horizon)
+  const salesWindow = useMemo(() => {
+    const records = sales
+    const total = records.reduce((sum, record) => sum + record.sales, 0)
+    return {
+      total,
+      average: records.length ? total / records.length : null,
+      observations: records.length,
+    }
+  }, [sales, horizon])
+  const forecastUnavailable = !loading && visibleForecasts.length === 0
   const comparison = trainingReport?.report.comparison ?? []
   const stockValue = Number(currentStock)
+
+  // Refresh only model artifacts so actual sales remain visible while training runs.
+  useEffect(() => {
+    if (!forecastUnavailable || error || store === null || item === null) return
+    const controller = new AbortController()
+    let active = true
+    let timer: number
+    async function checkForecasts() {
+      try {
+        const filter = queryString({ store: store!, item: item!, limit: 1000 })
+        const [forecastPage, modelData] = await Promise.all([
+          getJson<ForecastResponse>(`/forecasts?${filter}`, controller.signal),
+          getJson<ComparisonResponse>(`/models/comparison?${queryString({ store: store!, item: item!, holdout_days: horizon })}`, controller.signal),
+        ])
+        if (!active) return
+        setForecasts(forecastPage.records)
+        setTrainingReport(modelData.training_reports[0] ?? null)
+      } catch {
+        // Keep already loaded sales visible and retry temporary connection failures.
+      } finally {
+        if (active) timer = window.setTimeout(checkForecasts, 5000)
+      }
+    }
+    timer = window.setTimeout(checkForecasts, 5000)
+    return () => { active = false; window.clearTimeout(timer); controller.abort() }
+  }, [forecastUnavailable, error, store, item, model, horizon])
 
   function changeStore(value: number) {
     setLoading(true)
     setError('')
     setInventory(null)
+    setInventoryRequest(null)
     setStore(value)
   }
 
@@ -296,6 +388,7 @@ function App() {
     setLoading(true)
     setError('')
     setInventory(null)
+    setInventoryRequest(null)
     setItem(value)
   }
 
@@ -305,39 +398,56 @@ function App() {
       setError('The start date must be on or before the end date.')
       return
     }
-    setLoading(true)
-    setError('')
-    setDateRange({ ...dateDraft })
+    setDateRange(dateDraft)
+    setRefreshKey((current) => current + 1)
   }
 
   function resetDateSearch() {
     if (!options) return
-    setDateDraft({ start: options.date_start, end: options.date_end })
-    setLoading(true)
-    setError('')
-    setDateRange({ start: options.date_start, end: options.date_end })
+    const fullRange = { start: options.date_start, end: options.date_end }
+    setDateDraft(fullRange)
+    setDateRange(fullRange)
+    setRefreshKey((current) => current + 1)
   }
 
-  async function calculateInventory(event: FormEvent<HTMLFormElement>) {
+  function calculateInventory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (store === null || item === null || !Number.isFinite(stockValue) || stockValue < 0) return
-    setInventoryLoading(true)
-    setInventoryError('')
-    try {
-      const params = queryString({
-        store,
-        item,
-        current_stock: stockValue,
-        lead_time_days: leadTime,
-        cycle_stock_days: cycleDays,
-      })
-      setInventory(await getJson<InventoryResponse>(`/inventory/recommendation?${params}`))
-    } catch (cause) {
-      setInventoryError(cause instanceof Error ? cause.message : 'Unable to calculate inventory guidance.')
-    } finally {
-      setInventoryLoading(false)
+    if (currentStock.trim() === '' || !Number.isFinite(stockValue) || stockValue < 0
+      || !Number.isInteger(leadTime) || leadTime < 1
+      || !Number.isInteger(cycleDays) || cycleDays < 1) {
+      setInventoryError('Enter a non-negative stock value and positive whole days for lead time and order cycle.')
+      return
     }
+    setInventoryError('')
+    setInventoryRequest({ stock: stockValue, leadTime, cycleDays })
+    setInventoryRefreshKey((current) => current + 1)
   }
+
+  useEffect(() => {
+    setInventory(null)
+    setInventoryError('')
+    setInventoryLoading(false)
+    if (page !== 'inventory' || store === null || item === null || itemsStore !== store
+      || inventoryRequest === null) return
+    const controller = new AbortController()
+    let active = true
+    setInventoryLoading(true)
+    const timer = window.setTimeout(() => {
+      const params = queryString({
+        store, item, model,
+        current_stock: inventoryRequest.stock,
+        lead_time_days: inventoryRequest.leadTime,
+        cycle_stock_days: inventoryRequest.cycleDays,
+      })
+      getJson<InventoryResponse>(`/inventory/recommendation?${params}`, controller.signal)
+        .then((data) => { if (active) setInventory(data) })
+        .catch((cause: unknown) => {
+          if (active) setInventoryError(cause instanceof Error ? cause.message : 'Unable to calculate inventory guidance.')
+        })
+        .finally(() => { if (active) setInventoryLoading(false) })
+    }, 300)
+    return () => { active = false; window.clearTimeout(timer); controller.abort() }
+  }, [page, store, item, itemsStore, model, inventoryRequest, inventoryRefreshKey])
 
   function downloadForecast() {
     const rows = [
@@ -428,12 +538,13 @@ function App() {
             </div>
           </div>
 
+          <p className="panel-subtitle">Store and product names are demo aliases; the source dataset contains numeric IDs only.</p>
           <section className="control-panel" aria-label="Forecast controls">
             <div className="selector-group">
               <label className="field-label" htmlFor="store-select">Store</label>
               <div className="select-wrap">
                 <select id="store-select" value={store ?? ''} onChange={(event) => changeStore(Number(event.target.value))} disabled={!options}>
-                  {(options?.stores ?? []).map((value) => <option key={value} value={value}>Store {value}</option>)}
+                  {(options?.stores ?? []).map((value) => <option key={value} value={value}>{storeName(value)}</option>)}
                 </select>
                 <ChevronDown size={15} />
               </div>
@@ -442,37 +553,40 @@ function App() {
             <div className="selector-group">
               <label className="field-label" htmlFor="item-select">Product</label>
               <div className="select-wrap">
-                <select id="item-select" value={item ?? ''} onChange={(event) => changeItem(Number(event.target.value))} disabled={!items.length}>
-                  {items.map((value) => <option key={value} value={value}>Item {value}</option>)}
+                <select id="item-select" value={item ?? ''} onChange={(event) => changeItem(Number(event.target.value))} disabled={!items.length || itemsStore !== store}>
+                  {items.map((value) => <option key={value} value={value}>{itemName(value)}</option>)}
                 </select>
                 <ChevronDown size={15} />
               </div>
             </div>
-            <span className="control-divider" />
-            <div className="selector-group model-selector">
-              <label className="field-label" htmlFor="model-select">Forecast model</label>
-              <div className="select-wrap">
-                <select id="model-select" value={model} onChange={(event) => setModel(event.target.value)}>
-                  <option value="best">Best model{bestModel ? ` · ${bestModel}` : ''}</option>
-                  <option value="lstm">LSTM</option>
-                  <option value="xgboost">XGBoost</option>
-                </select>
-                <ChevronDown size={15} />
+            {page !== 'models' && <>
+              <span className="control-divider" />
+              <div className="selector-group model-selector">
+                <label className="field-label" htmlFor="model-select">Forecast model</label>
+                <div className="select-wrap">
+                  <select id="model-select" value={model} onChange={(event) => { setModel(event.target.value); setInventory(null); setInventoryRequest(null) }}>
+                    <option value="lstm">LSTM</option>
+                    <option value="xgboost">XGBoost</option>
+                  </select>
+                  <ChevronDown size={15} />
+                </div>
               </div>
-            </div>
-            <div className="horizon-picker" aria-label="Forecast horizon">
-              {[30, 60, 90].map((days) => (
-                <button className={horizon === days ? 'selected' : ''} key={days} onClick={() => setHorizon(days)} type="button">
-                  {days}<span>d</span>
-                </button>
-              ))}
-            </div>
+            </>}
+            {(page === 'forecast' || page === 'models') && (
+              <div className="horizon-picker" aria-label="Forecast horizon">
+                {[30, 60, 90].map((days) => (
+                  <button className={horizon === days ? 'selected' : ''} key={days} onClick={() => setHorizon(days)} aria-pressed={horizon === days} type="button">
+                    {days}<span>d</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
           {(page === 'forecast' || page === 'sales') && (
             <form className="date-search-panel" onSubmit={applyDateSearch}>
               <div className="date-search-title">
                 <span className="date-search-icon"><CalendarDays size={16} /></span>
-                <span><strong>Search by date</strong><small>Filter historical sales. Future forecast dates are shown separately.</small></span>
+                <span><strong>Search by date</strong><small>Dates update automatically. Future forecast dates are shown separately.</small></span>
               </div>
               <label className="date-field" htmlFor="start-date">
                 <span>From</span>
@@ -525,15 +639,15 @@ function App() {
                 </article>
                 <article className="metric-card">
                   <span className="metric-icon beige"><ArrowUpRight size={17} /></span>
-                  <span className="metric-label">Forecast demand</span>
-                  <strong className="metric-value">{loading ? '…' : formatNumber(visibleForecasts.length ? forecastTotal : null)}</strong>
-                  <small className="metric-foot">Next {horizon} days · units</small>
+                  <span className="metric-label">{metrics.isForecast ? 'Forecast demand' : 'Recent sales'}</span>
+                  <strong className="metric-value">{loading ? "Loading..." : formatNumber(metrics.total)}</strong>
+                  <small className="metric-foot" aria-live="polite">{metrics.isForecast ? `Next ${metrics.days} days - units` : `Actual sales - latest ${metrics.days} days in your date range`}</small>
                 </article>
                 <article className="metric-card">
                   <span className="metric-icon green-light"><Leaf size={17} /></span>
-                  <span className="metric-label">Daily average</span>
-                  <strong className="metric-value">{loading ? '…' : formatNumber(averageForecast, 1)}</strong>
-                  <small className="metric-foot">Projected units per day</small>
+                  <span className="metric-label">{metrics.isForecast ? 'Daily average' : 'Historical daily average'}</span>
+                  <strong className="metric-value">{loading ? "Loading..." : formatNumber(metrics.average, 1)}</strong>
+                  <small className="metric-foot" aria-live="polite">{metrics.isForecast ? 'Projected units per day' : 'Actual units per day; forecast will appear when available'}</small>
                 </article>
                 <article className="metric-card model-card">
                   <span className="metric-icon green"><Check size={17} /></span>
@@ -547,8 +661,11 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <p className="section-kicker">DEMAND OUTLOOK</p>
-                    <h2>Sales trajectory <span className="heading-separator">·</span> Store {store ?? '—'}, Item {item ?? '—'}</h2>
-                    <p className="panel-subtitle">Historical performance and projected demand on one timeline.</p>
+                    <h2>Sales trajectory <span className="heading-separator">·</span> {storeName(store)}, {itemName(item)}</h2>
+                    <p className="panel-subtitle" aria-live="polite">
+                      {selectedModelName} · {horizon}-day forecast · Showing {visibleForecasts.length} forecast days.
+                      {' '}Chart: latest {historical.length} historical days. Table: all {sales.length} historical records in your date range.
+                    </p>
                   </div>
                   <div className="panel-actions">
                     <div className="view-switch" aria-label="Forecast layout">
@@ -561,6 +678,13 @@ function App() {
                     </button>
                   </div>
                 </div>
+                {!loading && visibleForecasts.length < horizon && (
+                  <p className="panel-subtitle" role="status">
+                    {visibleForecasts.length === 0
+                      ? 'No saved predictions are available for this model and product. Only historical sales can be shown.'
+                      : `Only ${visibleForecasts.length} of the requested ${horizon} forecast days are available for this model.`}
+                  </p>
+                )}
                 <div className={`forecast-layout layout-${viewMode}`}>
                   {viewMode !== 'table' && (
                     <div className="chart-area">
@@ -577,21 +701,21 @@ function App() {
                         <div className="empty-chart">
                           <span className="empty-icon"><Activity size={22} /></span>
                           <strong>No future forecast found</strong>
-                          <p>Train Store {store ?? '—'}, Item {item ?? '—'} to create forecast files for this view.</p>
+                          <p>Train {storeName(store)}, {itemName(item)} to create forecast files for this view.</p>
                         </div>
                       )}
                     </div>
                   )}
                   {viewMode !== 'chart' && (
                     <div className="forecast-table-wrap">
-                      {viewMode === 'split' && <h3>Forecast detail</h3>}
-                      <ForecastTable records={visibleForecasts} />
+                      {viewMode === 'split' && <h3>Sales and forecast detail</h3>}
+                      <ForecastTable records={tableData} loading={loading} />
                     </div>
                   )}
                 </div>
                 <div className="chart-footer">
-                  <div className="chart-legend-copy"><span className="legend-dot actual-dot" />Actual sales <span className="legend-dot forecast-dot" />Model forecast {visibleForecasts.some((record) => record.yhat_lower !== undefined && record.yhat_upper !== undefined) && <><span className="legend-band" />Uncertainty range</>}</div>
-                  <span>Forecast files are generated during model training.</span>
+                  <div className="chart-legend-copy"><span className="legend-dot actual-dot" />Actual sales <span className="legend-dot forecast-dot" />Model forecast {visibleForecasts.some((record) => record.yhat_lower != null && record.yhat_upper != null) && <><span className="legend-band" />Uncertainty range</>}</div>
+                  <span>Bounds are approximate prediction ranges estimated from holdout errors.</span>
                 </div>
               </section>
 
@@ -605,15 +729,15 @@ function App() {
 
           {page === 'sales' && (
             <section className="content-card">
-              <div className="section-card-heading"><div><p className="section-kicker">HISTORICAL PERFORMANCE</p><h2>Daily sales history</h2><p className="panel-subtitle">Store {store ?? '—'} · Item {item ?? '—'} · {formatDate(summary?.date_start)} – {formatDate(summary?.date_end)}</p></div></div>
-              <div className="sales-stat-row"><span><small>Total units</small><strong>{formatNumber(summary?.total_sales)}</strong></span><span><small>Daily average</small><strong>{formatNumber(summary?.average_daily_sales_per_record, 1)}</strong></span><span><small>Observations</small><strong>{formatNumber(summary?.records)}</strong></span></div>
-              <SalesTable records={sales.slice(-180).reverse()} loading={loading} />
+              <div className="section-card-heading"><div><p className="section-kicker">HISTORICAL PERFORMANCE</p><h2>Daily sales history</h2><p className="panel-subtitle">{storeName(store)} · {itemName(item)} · {formatDate(summary?.date_start)} – {formatDate(summary?.date_end)}</p></div></div>
+              <div className="sales-stat-row"><span><small>Total units</small><strong>{formatNumber(salesWindow.total)}</strong></span><span><small>Daily average</small><strong>{formatNumber(salesWindow.average, 1)}</strong></span><span><small>Observations</small><strong>{formatNumber(salesWindow.observations)}</strong></span></div>
+              <SalesTable records={[...sales].reverse()} loading={loading} />
             </section>
           )}
 
           {page === 'models' && (
             <section className="content-card">
-              <div className="section-card-heading"><div><p className="section-kicker">VALIDATION SNAPSHOT</p><h2>Compare forecasting models</h2><p className="panel-subtitle">Chronological holdout results for Store {store ?? '—'}, Item {item ?? '—'}.</p></div><span className="holdout-chip"><Check size={14} />{trainingReport?.report.holdout_days ?? 90} day holdout</span></div>
+              <div className="section-card-heading"><div><p className="section-kicker">VALIDATION SNAPSHOT</p><h2>Compare forecasting models</h2><p className="panel-subtitle">Chronological holdout results for {storeName(store)}, {itemName(item)}.</p></div><span className="holdout-chip"><Check size={14} />{trainingReport?.report.holdout_days ?? 90} day holdout</span></div>
               {comparison.length ? (
                 <div className="comparison-grid">
                   {comparison.map((metric) => (
@@ -637,12 +761,12 @@ function App() {
               <div className="content-card inventory-form-card">
                 <p className="section-kicker">REPLENISHMENT PLANNING</p>
                 <h2>Estimate a reorder point</h2>
-                <p className="panel-subtitle">Use the saved best-model forecast and your current on-hand stock.</p>
+                <p className="panel-subtitle">Use the selected forecast model and your current on-hand stock. Guidance updates automatically.</p>
                 <form className="inventory-form" onSubmit={calculateInventory}>
-                  <label>Current stock <span>units on hand</span><input min="0" required step="1" type="number" value={currentStock} onChange={(event) => setCurrentStock(event.target.value)} placeholder="Enter your stock" /></label>
+                  <label>Current stock <span>units on hand</span><input min="0" required step="1" type="number" value={currentStock} onChange={(event) => { setCurrentStock(event.target.value); setInventory(null) }} placeholder="Enter your stock" /></label>
                   <div className="form-duo">
-                    <label>Lead time <span>days</span><input min="1" required type="number" value={leadTime} onChange={(event) => setLeadTime(Number(event.target.value))} /></label>
-                    <label>Order cycle <span>days</span><input min="1" required type="number" value={cycleDays} onChange={(event) => setCycleDays(Number(event.target.value))} /></label>
+                    <label>Lead time <span>days</span><input min="1" required type="number" value={leadTime} onChange={(event) => { setLeadTime(Number(event.target.value)); setInventory(null) }} /></label>
+                    <label>Order cycle <span>days</span><input min="1" required type="number" value={cycleDays} onChange={(event) => { setCycleDays(Number(event.target.value)); setInventory(null) }} /></label>
                   </div>
                   <button className="primary-button" disabled={inventoryLoading || store === null || item === null} type="submit">{inventoryLoading ? 'Calculating…' : 'Calculate recommendation'}<ArrowUpRight size={16} /></button>
                 </form>
@@ -662,14 +786,37 @@ function App() {
   )
 }
 
-function ForecastTable({ records }: { records: ForecastRecord[] }) {
-  if (!records.length) return <div className="table-empty">No forecast rows for this model and horizon.</div>
+function ForecastTable({ records, loading }: { records: ChartPoint[]; loading: boolean }) {
+  if (loading) return <div className="loading-state"><span className="spinner" />Loading sales and forecasts…</div>
+  if (!records.length) return <div className="table-empty">No sales or forecast rows are available for this selection.</div>
+  const actualRecords = records.filter((record) => record.actual !== null)
+    .sort((left, right) => right.date.localeCompare(left.date))
+  const forecastRecords = records.filter((record) => record.forecast !== null)
+    .sort((left, right) => left.date.localeCompare(right.date))
+  const orderedRecords = [...actualRecords, ...forecastRecords.filter((record) => record.actual === null)]
   return (
-    <div className="table-scroll">
-      <table>
-        <thead><tr><th>Forecast date</th><th>Expected demand</th><th>Lower bound</th><th>Upper bound</th></tr></thead>
-        <tbody>{records.map((record, index) => <tr key={`${recordDate(record)}-${index}`}><td>{formatDate(recordDate(record))}</td><td className="numeric">{formatNumber(recordForecast(record), 1)}</td><td className="numeric">{formatNumber(record.yhat_lower, 1)}</td><td className="numeric">{formatNumber(record.yhat_upper, 1)}</td></tr>)}</tbody>
-      </table>
+    <div>
+      <div className="table-scroll">
+        <table className="demand-table">
+          <caption>
+            Showing {orderedRecords.length} rows: {actualRecords.length} actual sales and {forecastRecords.length} forecasts. All quantities are units.
+            <span>All recorded sales are shown newest first, followed by the complete forecast horizon.</span>
+            <span>Future actual sales are not yet recorded. Historical forecast values and bounds are not available in this forecast dataset.</span>
+          </caption>
+          <colgroup><col className="date-column" /><col className="period-column" /><col /><col /><col /><col /></colgroup>
+          <thead><tr><th scope="col">Date</th><th scope="col">Period</th><th scope="col" className="numeric">Actual sales</th><th scope="col" className="numeric">Forecast demand</th><th scope="col" className="numeric">Lower bound</th><th scope="col" className="numeric">Upper bound</th></tr></thead>
+          <tbody>{orderedRecords.map((record, index) => (
+            <tr key={`${record.date}-${index}`}>
+              <td>{formatDate(record.date)}</td>
+              <td>{record.forecast === null ? 'Historical' : 'Forecast'}</td>
+              <td className="numeric">{record.actual === null ? 'Not yet recorded' : formatNumber(record.actual, 1)}</td>
+              <td className="numeric">{record.forecast === null ? 'Not available' : formatNumber(record.forecast, 1)}</td>
+              <td className="numeric">{record.confidence?.[0] == null ? 'Not available' : formatNumber(record.confidence[0], 1)}</td>
+              <td className="numeric">{record.confidence?.[1] == null ? 'Not available' : formatNumber(record.confidence[1], 1)}</td>
+            </tr>
+          ))}{!orderedRecords.length && <tr><td colSpan={6}>No sales or forecast rows are available for this selection.</td></tr>}</tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -681,7 +828,7 @@ function SalesTable({ records, loading }: { records: SalesRecord[]; loading: boo
     <div className="table-scroll">
       <table>
         <thead><tr><th>Date</th><th>Store</th><th>Item</th><th className="numeric">Units sold</th></tr></thead>
-        <tbody>{records.map((record, index) => <tr key={`${record.date}-${index}`}><td>{formatDate(record.date)}</td><td>{record.store}</td><td>{record.item}</td><td className="numeric">{formatNumber(record.sales)}</td></tr>)}</tbody>
+        <tbody>{records.map((record, index) => <tr key={`${record.date}-${index}`}><td>{formatDate(record.date)}</td><td>{storeName(record.store)}</td><td>{itemName(record.item)}</td><td className="numeric">{formatNumber(record.sales)}</td></tr>)}</tbody>
       </table>
     </div>
   )
