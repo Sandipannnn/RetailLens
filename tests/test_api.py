@@ -45,6 +45,25 @@ def test_health_endpoint(client):
     assert response.json() == {"status": "ok"}
 
 
+def test_sales_comparison_filters_dates_and_preserves_values(client, tmp_path, monkeypatch):
+    sales_path = tmp_path / "sales.csv"
+    _write_sales_csv(sales_path)
+    monkeypatch.setattr(api_module, "DATA_CANDIDATES", (sales_path,))
+    def comparison(store, item, source, modified):
+        assert (store, item) == (1, 1)
+        return [{"date": date, "actual_sales": 10, "yhat": 11,
+                 "yhat_lower": 8, "yhat_upper": 14}
+                for date in ["2024-01-01", "2024-01-02"]]
+    monkeypatch.setattr(api_module, "_historical_comparison", comparison)
+    response = client.get('/sales/comparison', params={
+        'store': 1, 'item': 1, 'start_date': '2024-01-02', 'end_date': '2024-01-02'})
+    assert response.status_code == 200
+    assert response.json()['records'] == [{"date": "2024-01-02", "actual_sales": 10,
+                                           "yhat": 11, "yhat_lower": 8, "yhat_upper": 14}]
+    assert client.get('/sales/comparison', params={'store': 1, 'item': 1,
+        'start_date': 'invalid'}).status_code == 422
+
+
 def test_sales_options_returns_store_and_item_choices(client, tmp_path, monkeypatch):
     sales_path = tmp_path / "sales.csv"
     _write_sales_csv(sales_path)

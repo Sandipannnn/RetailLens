@@ -34,6 +34,7 @@ from src.clean_data import clean_data, PROCESSED_PATH
 from src.models.lstm_model import LSTMForecaster
 from src.models.xgboost_model import RetailXGBoostForecaster
 from src.models.model_selector import ModelSelector
+from src.forecast_intervals import add_prediction_bounds
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,6 +82,8 @@ def train_and_evaluate(
     logger.info(f"Series: {len(series_df)} rows  "
                 f"({series_df['date'].min().date()} → {series_df['date'].max().date()})")
 
+    # Keep feature generation and model evaluation scoped to this series.
+    df = series_df.copy()
     selector = ModelSelector()
     results = {}
 
@@ -95,13 +98,13 @@ def train_and_evaluate(
     if not force_retrain and lstm_model_exists:
         logger.info("  Loading saved LSTM model...")
         lstm.load(store_id, item_id)
-        lstm_metrics, _ = lstm.evaluate_holdout(
+        lstm_metrics, lstm_holdout = lstm.evaluate_holdout(
             df, holdout_days=holdout_days, store=store_id, item=item_id, retrain=False
         )
     else:
         logger.info("  Training LSTM model...")
         t0 = time.time()
-        lstm_metrics, _ = lstm.evaluate_holdout(
+        lstm_metrics, lstm_holdout = lstm.evaluate_holdout(
             df, holdout_days=holdout_days, store=store_id, item=item_id, retrain=True
         )
         logger.info(f"  LSTM training completed in {time.time() - t0:.1f}s")
@@ -123,13 +126,13 @@ def train_and_evaluate(
         logger.info("  Loading saved XGBoost model...")
         xgb = RetailXGBoostForecaster.load(xgb_model_path)
         # Re-evaluate on holdout for a fair metric
-        xgb_metrics, _ = xgb.evaluate_holdout(
+        xgb_metrics, xgb_holdout = xgb.evaluate_holdout(
             df, holdout_days=holdout_days, store=store_id, item=item_id
         )
     else:
         logger.info("  Training XGBoost model...")
         t0 = time.time()
-        xgb_metrics, _ = xgb.evaluate_holdout(
+        xgb_metrics, xgb_holdout = xgb.evaluate_holdout(
             df, holdout_days=holdout_days, store=store_id, item=item_id
         )
         logger.info(f"  XGBoost training completed in {time.time() - t0:.1f}s")
@@ -163,8 +166,14 @@ def train_and_evaluate(
     lstm_fc = lstm.predict(horizon_days=90)
     xgb_fc = xgb.predict_future(df, horizon_days=90, store=store_id, item=item_id)
 
-    lstm_fc.to_csv(f"{FORECAST_DIR}/lstm_s{store_id}_i{item_id}.csv", index=False)
-    xgb_fc.to_csv(f"{FORECAST_DIR}/xgboost_s{store_id}_i{item_id}.csv", index=False)
+    lstm_fc = add_prediction_bounds(lstm_fc, lstm_holdout["y"], lstm_holdout["yhat"])
+    xgb_fc = add_prediction_bounds(xgb_fc, xgb_holdout["actual_sales"], xgb_holdout["predicted_sales"])
+
+    # Publish complete files so the running API never reads a partial CSV.
+    for name, forecast in (("lstm", lstm_fc), ("xgboost", xgb_fc)):
+        destination = f"{FORECAST_DIR}/{name}_s{store_id}_i{item_id}.csv"
+        forecast.to_csv(destination + ".tmp", index=False)
+        os.replace(destination + ".tmp", destination)
     logger.info(f"  Forecasts saved to {FORECAST_DIR}/")
 
     results["lstm_forecast"] = lstm_fc
@@ -183,8 +192,9 @@ def train_and_evaluate(
         "comparison": comparison_df.to_dict(orient="records"),
     }
     report_path = f"{REPORT_DIR}/model_comparison_s{store_id}_i{item_id}.json"
-    with open(report_path, "w") as f:
+    with open(report_path + ".tmp", "w") as f:
         json.dump(report, f, indent=2)
+    os.replace(report_path + ".tmp", report_path)
     logger.info(f"  Report saved to {report_path}")
 
     logger.info("\n" + "=" * 60)

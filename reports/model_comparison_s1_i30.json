@@ -3,32 +3,32 @@
   "item": 30,
   "holdout_days": 90,
   "lstm_metrics": {
-    "MAE": 6.3949,
-    "RMSE": 7.9376,
-    "MAPE": 17.857,
-    "sMAPE": 16.5618
+    "MAE": 3.6106,
+    "RMSE": 4.7467,
+    "MAPE": 18.1079,
+    "sMAPE": 15.5621
   },
   "xgb_metrics": {
-    "MAE": 4.8889,
-    "RMSE": 6.323,
-    "MAPE": 12.5987,
-    "sMAPE": 12.7103
+    "MAE": 3.5315,
+    "RMSE": 4.5383,
+    "MAPE": 15.8274,
+    "sMAPE": 16.0428
   },
   "best_model": "XGBoost (ML)",
   "comparison": [
     {
       "Model": "XGBoost (ML)",
-      "MAE": 4.8889,
-      "RMSE": 6.323,
-      "MAPE (%)": 12.6,
-      "sMAPE (%)": 12.71
+      "MAE": 3.5315,
+      "RMSE": 4.5383,
+      "MAPE (%)": 15.83,
+      "sMAPE (%)": 16.04
     },
     {
       "Model": "LSTM (AI)",
-      "MAE": 6.3949,
-      "RMSE": 7.9376,
-      "MAPE (%)": 17.86,
-      "sMAPE (%)": 16.56
+      "MAE": 3.6106,
+      "RMSE": 4.7467,
+      "MAPE (%)": 18.11,
+      "sMAPE (%)": 15.56
     }
   ]
 }

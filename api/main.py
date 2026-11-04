@@ -27,12 +27,13 @@ TS_METRICS_CSV = ROOT / "reports" / "ts_model_comparison.csv"
 FEATURE_IMPORTANCE_CSV = ROOT / "outputs" / "metrics" / "xgboost_feature_importance.csv"
 REPORT_DIR = ROOT / "reports"
 PREDICTION_DIR = ROOT / "outputs" / "predictions"
+MODEL_DIR = ROOT / "data" / "processed" / "models"
 
 app = FastAPI(
     title="RetailLens Sales Analytics API",
     description=(
         "Read-only access to RetailLens historical sales, exported future forecasts, "
-        "and saved model evaluation artifacts. This API never trains models or writes to project data."
+        "and model evaluation artifacts. Historical comparisons fit an in-memory evaluation model; no project data is written."
     ),
     version="1.0.0",
 )
@@ -277,13 +278,89 @@ def forecasts(
 def model_comparison(
     store: int | None = Query(default=None, ge=1),
     item: int | None = Query(default=None, ge=1),
+    holdout_days: int = Query(default=90, ge=30, le=90),
 ) -> dict[str, Any]:
     """Return current per-series reports plus the legacy aggregate comparisons."""
+    reports = _training_reports(store, item)
+    if store is not None and item is not None:
+        try:
+            reports = [_evaluate_model_comparison(store, item, holdout_days)]
+        except FileNotFoundError:
+            reports = _training_reports(store, item)
     return {
-        "training_reports": _training_reports(store, item),
+        "training_reports": reports,
         "time_series": {"json": _read_json(TS_METRICS_JSON), "csv": _read_csv_records(TS_METRICS_CSV)},
         "machine_learning": {"json": _read_json(ML_METRICS_JSON), "csv": _read_csv_records(ML_METRICS_CSV)},
     }
+
+
+@lru_cache(maxsize=256)
+def _evaluate_model_comparison(store: int, item: int, holdout_days: int) -> dict[str, Any]:
+    """Evaluate the saved LSTM and XGBoost models on a selected holdout window."""
+    from src.models.lstm_model import LSTMForecaster
+    from src.models.xgboost_model import RetailXGBoostForecaster
+
+    data, source = _sales_frame()
+    series = data[(data["store"] == store) & (data["item"] == item)].copy()
+    if len(series) <= holdout_days:
+        raise ValueError(f"Not enough sales observations for a {holdout_days}-day holdout.")
+
+    lstm = LSTMForecaster(model_dir=str(MODEL_DIR))
+    xgb_path = MODEL_DIR / f"xgb_s{store}_i{item}.joblib"
+    if not LSTMForecaster.model_exists(store, item, str(MODEL_DIR)) or not xgb_path.is_file():
+        raise FileNotFoundError("Saved models are not available for this series.")
+
+    lstm.load(store, item)
+    lstm_metrics, _ = lstm.evaluate_holdout(series, holdout_days=holdout_days, store=store, item=item, retrain=False)
+    xgb = RetailXGBoostForecaster.load(str(xgb_path))
+    xgb_metrics, _ = xgb.evaluate_holdout(series, holdout_days=holdout_days, store=store, item=item)
+    comparison = [
+        {"Model": "XGBoost (ML)", "MAE": round(xgb_metrics["MAE"], 2), "RMSE": round(xgb_metrics["RMSE"], 2), "MAPE (%)": round(xgb_metrics["MAPE"], 2), "sMAPE (%)": round(xgb_metrics["sMAPE"], 2)},
+        {"Model": "LSTM (AI)", "MAE": round(lstm_metrics["MAE"], 2), "RMSE": round(lstm_metrics["RMSE"], 2), "MAPE (%)": round(lstm_metrics["MAPE"], 2), "sMAPE (%)": round(lstm_metrics["sMAPE"], 2)},
+    ]
+    best = min(comparison, key=lambda row: (row["RMSE"], row["MAE"]))["Model"]
+    return {
+        "store": store,
+        "item": item,
+        "report": {
+            "holdout_days": holdout_days,
+            "best_model": best,
+            "comparison": comparison,
+        },
+        "_source_mtime": source.stat().st_mtime_ns,
+    }
+
+
+@lru_cache(maxsize=128)
+def _historical_comparison(store: int, item: int, source: str, modified: int) -> list[dict[str, Any]]:
+    from src.historical_comparison import historical_comparison
+
+    data, _ = _sales_frame()
+    result = historical_comparison(data, store, item)
+    result["date"] = pd.to_datetime(result["date"]).dt.strftime("%Y-%m-%d")
+    return _json_safe(result.to_dict(orient="records"))
+
+
+@app.get("/sales/comparison", tags=["sales"])
+def sales_comparison(
+    store: int = Query(ge=1),
+    item: int = Query(ge=1),
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """Return complete historical actual/prediction/bound rows for one series."""
+    try:
+        # Validate date filters before doing model work.
+        _filtered_sales(store, item, start_date, end_date)
+        _, path = _sales_frame()
+        rows = _historical_comparison(store, item, str(path), path.stat().st_mtime_ns)
+        rows = [row for row in rows
+                if (not start_date or pd.Timestamp(row["date"]) >= pd.Timestamp(start_date))
+                and (not end_date or pd.Timestamp(row["date"]) <= pd.Timestamp(end_date))]
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"model": "XGBoost", "records": rows,
+            "note": "Historical one-step predictions: last 90 days, with bounds calibrated on the preceding 90 days. Independent of the future forecast model selection."}
 
 
 @app.get("/models/evaluation", tags=["models"])

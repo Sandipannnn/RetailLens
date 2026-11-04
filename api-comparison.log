@@ -1,0 +1,14 @@
+INFO:     127.0.0.1:60925 - "GET /sales/comparison?store=1&item=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57643 - "GET /sales?store=1&item=6&start_date=2013-01-01&end_date=2017-12-31&limit=10000 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51261 - "GET /sales/summary?store=1&item=6&start_date=2013-01-01&end_date=2017-12-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53499 - "GET /models/comparison?store=1&item=6&start_date=2013-01-01&end_date=2017-12-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59678 - "GET /forecasts?store=1&item=6&limit=1000 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49690 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60546 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57617 - "GET /sales/options HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59702 - "GET /sales/options HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59702 - "GET /sales/options?store=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57617 - "GET /sales?store=1&item=1&start_date=2013-01-01&end_date=2017-12-31&limit=10000 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59702 - "GET /sales/summary?store=1&item=1&start_date=2013-01-01&end_date=2017-12-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49690 - "GET /models/comparison?store=1&item=1&start_date=2013-01-01&end_date=2017-12-31 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60546 - "GET /forecasts?store=1&item=1&limit=1000 HTTP/1.1" 200 OK
