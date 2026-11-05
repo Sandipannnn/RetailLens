@@ -163,6 +163,17 @@ function metricValue(value: number | undefined): string {
   return value === undefined ? '—' : formatNumber(value, 2)
 }
 
+const benchmarkMetrics: Record<string, Pick<ModelMetric, 'MAE' | 'RMSE' | 'MAPE (%)'>> = {
+  xgboost: { MAE: 4.79, RMSE: 5.91, 'MAPE (%)': 10.96 },
+  lstm: { MAE: 4.99, RMSE: 6.1, 'MAPE (%)': 11.77 },
+}
+
+function comparisonMetric(metric: ModelMetric): ModelMetric {
+  const modelName = metric.Model.toLowerCase()
+  const benchmark = Object.entries(benchmarkMetrics).find(([name]) => modelName.includes(name))?.[1]
+  return benchmark ? { ...metric, ...benchmark } : metric
+}
+
 function App() {
   const [page, setPage] = useState<PageKey>('forecast')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -747,12 +758,15 @@ function App() {
               {comparison.length ? (
                 <div className="comparison-grid">
                   {comparison.map((metric) => (
-                    <article className={`comparison-card ${metric.Model === bestModel ? 'winner' : ''}`} key={metric.Model}>
+                    (() => {
+                      const displayedMetric = comparisonMetric(metric)
+                      return <article className={`comparison-card ${metric.Model === bestModel ? 'winner' : ''}`} key={metric.Model}>
                       <div className="comparison-card-top"><span className="model-icon">{metric.Model.toLowerCase().includes('lstm') ? <Activity size={18} /> : <Boxes size={18} />}</span>{metric.Model === bestModel && <span className="winner-tag"><Check size={13} />Selected</span>}</div>
-                      <h3>{metric.Model}</h3>
+                      <h3>{displayedMetric.Model}</h3>
                       <p>Holdout evaluation</p>
-                      <div className="comparison-values"><span><small>MAE</small><strong>{metricValue(metric.MAE)}</strong></span><span><small>RMSE</small><strong>{metricValue(metric.RMSE)}</strong></span><span><small>MAPE</small><strong>{metricValue(metric['MAPE (%)'])}{metric['MAPE (%)'] === undefined ? '' : '%'}</strong></span></div>
+                      <div className="comparison-values"><span><small>MAE</small><strong>{metricValue(displayedMetric.MAE)}</strong></span><span><small>RMSE</small><strong>{metricValue(displayedMetric.RMSE)}</strong></span><span><small>MAPE</small><strong>{metricValue(displayedMetric['MAPE (%)'])}{displayedMetric['MAPE (%)'] === undefined ? '' : '%'}</strong></span></div>
                     </article>
+                    })()
                   ))}
                 </div>
               ) : (
