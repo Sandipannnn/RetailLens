@@ -279,14 +279,18 @@ def model_comparison(
     store: int | None = Query(default=None, ge=1),
     item: int | None = Query(default=None, ge=1),
     holdout_days: int = Query(default=90, ge=30, le=90),
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, Any]:
     """Return current per-series reports plus the legacy aggregate comparisons."""
     reports = _training_reports(store, item)
     if store is not None and item is not None:
         try:
-            reports = [_evaluate_model_comparison(store, item, holdout_days)]
+            reports = [_evaluate_model_comparison(store, item, holdout_days, start_date, end_date)]
         except FileNotFoundError:
             reports = _training_reports(store, item)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid model comparison range: {exc}") from exc
     return {
         "training_reports": reports,
         "time_series": {"json": _read_json(TS_METRICS_JSON), "csv": _read_csv_records(TS_METRICS_CSV)},
@@ -295,15 +299,29 @@ def model_comparison(
 
 
 @lru_cache(maxsize=256)
-def _evaluate_model_comparison(store: int, item: int, holdout_days: int) -> dict[str, Any]:
-    """Evaluate the saved LSTM and XGBoost models on a selected holdout window."""
+def _evaluate_model_comparison(
+    store: int,
+    item: int,
+    holdout_days: int,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate saved models on the selected date range's trailing holdout."""
     from src.models.lstm_model import LSTMForecaster
     from src.models.xgboost_model import RetailXGBoostForecaster
 
     data, source = _sales_frame()
     series = data[(data["store"] == store) & (data["item"] == item)].copy()
+    if start_date:
+        series = series[series["date"] >= pd.Timestamp(start_date)]
+    if end_date:
+        series = series[series["date"] <= pd.Timestamp(end_date)]
+    if start_date and end_date and pd.Timestamp(start_date) > pd.Timestamp(end_date):
+        raise ValueError("start_date must be on or before end_date.")
     if len(series) <= holdout_days:
-        raise ValueError(f"Not enough sales observations for a {holdout_days}-day holdout.")
+        raise ValueError(
+            f"Not enough sales observations in the selected range for a {holdout_days}-day holdout."
+        )
 
     lstm = LSTMForecaster(model_dir=str(MODEL_DIR))
     xgb_path = MODEL_DIR / f"xgb_s{store}_i{item}.joblib"
